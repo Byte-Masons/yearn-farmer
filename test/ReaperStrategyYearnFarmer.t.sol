@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
-import "src/ReaperStrategyStabilityPool.sol";
+import "src/ReaperStrategyYearnFarmer.sol";
 import "vault-v2/ReaperSwapper.sol";
 import "vault-v2/ReaperVaultV2.sol";
 import "vault-v2/ReaperBaseStrategyv4.sol";
@@ -20,7 +20,7 @@ import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 
-contract ReaperStrategyStabilityPoolTest is Test {
+contract ReaperStrategyYearnFarmerTest is Test {
     using stdStorage for StdStorage;
     // Fork Identifier
 
@@ -102,9 +102,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
     string public vaultSymbol = "rf-SP-ERN";
     uint256 public vaultTvlCap = type(uint256).max;
 
-    ReaperStrategyStabilityPool public implementation;
+    ReaperStrategyYearnFarmer public implementation;
     ERC1967Proxy public proxy;
-    ReaperStrategyStabilityPool public wrappedProxy;
+    ReaperStrategyYearnFarmer public wrappedProxy;
 
     ISwapper public swapper;
 
@@ -113,9 +113,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function setUp() public {
         // Forking
-        optimismFork = vm.createSelectFork(
-            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 106483261
-        );
+        string memory rpc = vm.envString("RPC");
+        optimismFork = vm.createSelectFork(rpc, 107994026);
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
@@ -127,17 +126,17 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         vault =
         new ReaperVaultV2(wantAddress, vaultName, vaultSymbol, vaultTvlCap, treasuryAddress, strategists, multisigRoles);
-        implementation = new ReaperStrategyStabilityPool();
+        implementation = new ReaperStrategyYearnFarmer();
         proxy = new ERC1967Proxy(address(implementation), "");
-        wrappedProxy = ReaperStrategyStabilityPool(address(proxy));
+        wrappedProxy = ReaperStrategyYearnFarmer(address(proxy));
 
-        ReaperStrategyStabilityPool.ExchangeSettings memory exchangeSettings;
+        ReaperStrategyYearnFarmer.ExchangeSettings memory exchangeSettings;
         exchangeSettings.veloRouter = veloRouter;
         exchangeSettings.balVault = balVault;
         exchangeSettings.uniV3Router = uniV3Router;
         exchangeSettings.uniV2Router = uniV2Router;
 
-        ReaperStrategyStabilityPool.Pools memory pools;
+        ReaperStrategyYearnFarmer.Pools memory pools;
         pools.stabilityPool = stabilityPoolAddress;
         pools.veloUsdcErnPool = veloUsdcErnPool;
         pools.uniV3UsdcErnPool = uniV3UsdcErnPool;
@@ -146,11 +145,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
         usdcErnPath[0] = usdcAddress;
         usdcErnPath[1] = wantAddress;
 
-        ReaperStrategyStabilityPool.Tokens memory tokens;
+        ReaperStrategyYearnFarmer.Tokens memory tokens;
         tokens.want = wantAddress;
         tokens.usdc = usdcAddress;
 
-        ReaperStrategyStabilityPool.TWAP currentUsdcErnTWAP = ReaperStrategyStabilityPool.TWAP.UniV3;
+        ReaperStrategyYearnFarmer.TWAP currentUsdcErnTWAP = ReaperStrategyYearnFarmer.TWAP.UniV3;
 
         wrappedProxy.initialize(
             address(vault),
@@ -825,16 +824,16 @@ contract ReaperStrategyStabilityPoolTest is Test {
         IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
 
-        ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
+        ReaperStrategyYearnFarmer.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
 
         uint256 priceQuote;
-        if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
+        if (currentTWAP == ReaperStrategyYearnFarmer.TWAP.UniV3) {
             address[] memory pools = new address[](1);
             pools[0] = address(uniV3UsdcErnPool);
             priceQuote = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
                 uint128(usdcAmount), usdcAddress, wantAddress, pools, 2
             );
-        } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
+        } else if (currentTWAP == ReaperStrategyYearnFarmer.TWAP.VeloV2) {
             priceQuote = pool.quote(usdcAddress, usdcAmount, granularity);
         }
         // Values should be the same because the usdc balance will be valued
@@ -926,10 +925,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         // IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         // uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
-        ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
+        ReaperStrategyYearnFarmer.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
         console.log("currentTWAP: ", uint256(currentTWAP));
         uint256 ernAmount;
-        if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
+        if (currentTWAP == ReaperStrategyYearnFarmer.TWAP.UniV3) {
             address[] memory pools = new address[](1);
             pools[0] = address(uniV3UsdcErnPool);
             uint32 twapPeriod = wrappedProxy.uniV3TWAPPeriod();
@@ -937,7 +936,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
             ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
                 uint128(usdcAmount), usdcAddress, wantAddress, pools, twapPeriod
             );
-        } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
+        } else if (currentTWAP == ReaperStrategyYearnFarmer.TWAP.VeloV2) {
             ernAmount = IVelodromePair(veloUsdcErnPool).quote(
                 usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity()
             );

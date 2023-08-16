@@ -19,7 +19,7 @@ import {ReaperSwapper} from "vault-v2/ReaperSwapper.sol";
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
-contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
+contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
 
     // 3rd-party contract addresses
