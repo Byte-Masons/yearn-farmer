@@ -125,17 +125,31 @@ contract ReaperStrategyYearnFarmerTest is Test {
         want.approve(address(vault), type(uint256).max);
         deal({token: address(want), to: wantHolderAddr, give: _toWant(100)});
 
-        // ReaperBaseStrategyv4.SwapStep memory step1 = ReaperBaseStrategyv4.SwapStep({
-        //     exType: ReaperBaseStrategyv4.ExchangeType.UniV3,
-        //     start: opAddress,
-        //     end: usdcAddress,
-        //     minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.ChainlinkBased, absoluteOrBPSValue: 9950}),
-        //     exchangeAddress: uniV3Router
-        // });
+        vm.startPrank(superAdminAddress);
+        swapper.updateTokenAggregator(wethAddress, 0x13e3Ee699D1909E989722E753853AE30b17e08c5, 172800);
+        swapper.updateTokenAggregator(opAddress, 0x0D276FC14719f9292D5C1eA2198673d1f4269246, 172800);
+        vm.stopPrank();
+
+        address[] memory opWethPath = new address[](2);
+        opWethPath[0] = opAddress;
+        opWethPath[1] = wethAddress;
+
+        uint24[] memory opWethFees = new uint24[](1);
+        opWethFees[0] = 3000;
+        UniV3SwapData memory opWethSwapData = UniV3SwapData({path: opWethPath, fees: opWethFees});
+        swapper.updateUniV3SwapPath(opAddress, wethAddress, uniV3Router, opWethSwapData);
+
+        ReaperBaseStrategyv4.SwapStep memory step1 = ReaperBaseStrategyv4.SwapStep({
+            exType: ReaperBaseStrategyv4.ExchangeType.UniV3,
+            start: opAddress,
+            end: wethAddress,
+            minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.ChainlinkBased, absoluteOrBPSValue: 9950}),
+            exchangeAddress: uniV3Router
+        });
         
-        // ReaperBaseStrategyv4.SwapStep[] memory steps = new ReaperBaseStrategyv4.SwapStep[](1);
-        // steps[0] = step1;
-        // wrappedProxy.setHarvestSwapSteps(steps);
+        ReaperBaseStrategyv4.SwapStep[] memory steps = new ReaperBaseStrategyv4.SwapStep[](1);
+        steps[0] = step1;
+        wrappedProxy.setHarvestSwapSteps(steps);
     }
 
     ///------ DEPLOYMENT ------\\\\
@@ -203,35 +217,35 @@ contract ReaperStrategyYearnFarmerTest is Test {
         assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
     }
 
-    // function testVaultCanMintUserPoolShare() public {
-    //     address alice = makeAddr("alice");
+    function testVaultCanMintUserPoolShare() public {
+        address alice = makeAddr("alice");
 
-    //     vm.startPrank(wantHolderAddr);
-    //     uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 2000) / 10000;
-    //     vault.deposit(depositAmount);
-    //     uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * 5000) / 10000;
-    //     want.transfer(alice, aliceDepositAmount);
-    //     vm.stopPrank();
+        vm.startPrank(wantHolderAddr);
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 2000) / 10000;
+        vault.deposit(depositAmount);
+        uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * 5000) / 10000;
+        want.transfer(alice, aliceDepositAmount);
+        vm.stopPrank();
 
-    //     vm.startPrank(alice);
-    //     want.approve(address(vault), aliceDepositAmount);
-    //     vault.deposit(aliceDepositAmount);
-    //     vm.stopPrank();
+        vm.startPrank(alice);
+        want.approve(address(vault), aliceDepositAmount);
+        vault.deposit(aliceDepositAmount);
+        vm.stopPrank();
 
-    //     uint256 allowedImprecision = 1e15;
+        uint256 allowedImprecision = 1e15;
 
-    //     uint256 userVaultBalance = vault.balanceOf(wantHolderAddr);
-    //     assertApproxEqRel(userVaultBalance, depositAmount, allowedImprecision);
-    //     uint256 aliceVaultBalance = vault.balanceOf(alice);
-    //     assertApproxEqRel(aliceVaultBalance, aliceDepositAmount, allowedImprecision);
+        uint256 userVaultBalance = vault.balanceOf(wantHolderAddr);
+        assertApproxEqRel(userVaultBalance, depositAmount, allowedImprecision);
+        uint256 aliceVaultBalance = vault.balanceOf(alice);
+        assertApproxEqRel(aliceVaultBalance, aliceDepositAmount, allowedImprecision);
 
-    //     vm.prank(alice);
-    //     vault.withdrawAll();
-    //     uint256 aliceWantBalance = want.balanceOf(alice);
-    //     assertApproxEqRel(aliceWantBalance, aliceDepositAmount, allowedImprecision);
-    //     aliceVaultBalance = vault.balanceOf(alice);
-    //     assertEq(aliceVaultBalance, 0);
-    // }
+        vm.prank(alice);
+        vault.withdrawAll();
+        uint256 aliceWantBalance = want.balanceOf(alice);
+        assertApproxEqRel(aliceWantBalance, aliceDepositAmount, allowedImprecision);
+        aliceVaultBalance = vault.balanceOf(alice);
+        assertEq(aliceVaultBalance, 0);
+    }
 
     function testVaultAllowsWithdrawals() public {
         uint256 userBalance = want.balanceOf(wantHolderAddr);

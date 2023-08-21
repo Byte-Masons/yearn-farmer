@@ -21,6 +21,7 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
 
     // 3rd-party contract addresses
     IYearnVault public yearnVault;
+    IYearnVault public constant YV_OP = IYearnVault(0x7D2382b1f8Af621229d33464340541Db362B4907);
     IStakingRewards public stakingRewards;
 
     /**
@@ -62,36 +63,18 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      * @dev Hook run before harvest to claim rewards
      */
     function _beforeHarvestSwapSteps() internal override {
-        // _withdraw(0); // claim rewards
-    }
-
-    // Swap steps will:
-    // 1. liquidate collateral rewards into USDC using the external Swapper (+ Chainlink oracles)
-    // 2. liquidate oath rewards into USDC using the external swapper (with 0 minAmountOut)
-    // As a final step, we need to convert the USDC into ERN using Velodrome's TWAP.
-    // Since the external Swapper cannot support arbitrary TWAPs at this time, we use this hook so
-    // we can calculate the minAmountOut ourselves and call the swapper directly.
-    function _afterHarvestSwapSteps() internal override {
-        // uint256 usdcBalance = usdc.balanceOf(address(this));
-        // if (usdcBalance != 0) {
-        //     uint256 expectedErnAmount = _getErnAmountForUsdc(usdcBalance);
-        //     uint256 minAmountOut = (expectedErnAmount * ernMinAmountOutBPS) / PERCENT_DIVISOR;
-        //     MinAmountOutData memory data =
-        //         MinAmountOutData({kind: MinAmountOutKind.Absolute, absoluteOrBPSValue: minAmountOut});
-        //     usdc.safeApprove(address(swapper), 0);
-        //     usdc.safeIncreaseAllowance(address(swapper), usdcBalance);
-        //     if (usdcToErnExchange == ExchangeType.Bal) {
-        //         swapper.swapBal(address(usdc), want, usdcBalance, data, exchangeSettings.balVault);
-        //     } else if (usdcToErnExchange == ExchangeType.VeloSolid) {
-        //         swapper.swapVelo(address(usdc), want, usdcBalance, data, exchangeSettings.veloRouter);
-        //     } else if (usdcToErnExchange == ExchangeType.UniV3) {
-        //         swapper.swapUniV3(address(usdc), want, usdcBalance, data, exchangeSettings.uniV3Router);
-        //     } else if (usdcToErnExchange == ExchangeType.UniV2) {
-        //         swapper.swapUniV2(address(usdc), want, usdcBalance, data, exchangeSettings.uniV2Router);
-        //     } else {
-        //         revert InvalidUsdcToErnExchange(uint256(usdcToErnExchange));
-        //     }
-        // }
+        stakingRewards.getReward();
+        uint256 yvOpBalance = YV_OP.balanceOf((address(this)));
+        console.log("yvOpBalance: ", yvOpBalance);
+        if (yvOpBalance != 0) {
+            YV_OP.withdraw();
+            bool isOpVault = address(yearnVault) == address(YV_OP);
+            if (isOpVault) {
+                _stake();
+            }
+        }
+        uint256 opBalance = IERC20Upgradeable(YV_OP.token()).balanceOf((address(this)));
+        console.log("opBalance: ", opBalance);
     }
 
     /**
@@ -104,9 +87,7 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
             console.log("toReinvest: ", toReinvest);
             IERC20Upgradeable(want).safeIncreaseAllowance(address(yearnVault), toReinvest);
             yearnVault.deposit(toReinvest);
-            uint256 toStake = yearnVault.balanceOf(address(this));
-            yearnVault.increaseAllowance(address(stakingRewards), toStake);
-            stakingRewards.stake(toStake);
+            _stake();
         }
     }
 
@@ -163,5 +144,11 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         // console.log("pricePerShare: ", pricePerShare);
         // console.log("balanceOfPool: ", vaultShares * pricePerShare / 1 ether);
         return vaultShares * pricePerShare / 1 ether;
+    }
+
+    function _stake() internal {
+        uint256 toStake = yearnVault.balanceOf(address(this));
+        yearnVault.increaseAllowance(address(stakingRewards), toStake);
+        stakingRewards.stake(toStake);
     }
 }
