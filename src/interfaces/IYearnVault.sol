@@ -19,6 +19,11 @@ interface IYearnVault {
   function withdraw(uint256 _maxShares) external;
 
   /**
+  * @dev Withdraw all from the vault
+  */
+  function withdraw() external;
+
+  /**
   * @dev The amount of vault shares held by _holder
   */
   function balanceOf(address _holder) external view returns (uint256);

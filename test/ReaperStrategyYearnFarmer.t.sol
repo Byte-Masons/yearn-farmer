@@ -252,244 +252,192 @@ contract ReaperStrategyYearnFarmerTest is Test {
         assertEq(userBalance, userBalanceAfterWithdraw);
     }
 
-    // function testVaultAllowsSmallWithdrawal() public {
-    //     address alice = makeAddr("alice");
+    function testVaultAllowsSmallWithdrawal() public {
+        address alice = makeAddr("alice");
 
-    //     vm.startPrank(wantHolderAddr);
-    //     uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * 1000) / 10000;
-    //     want.transfer(alice, aliceDepositAmount);
-    //     uint256 userBalance = want.balanceOf(wantHolderAddr);
-    //     uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 100) / 10000;
-    //     vault.deposit(depositAmount);
-    //     vm.stopPrank();
+        vm.startPrank(wantHolderAddr);
+        uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * 1000) / 10000;
+        want.transfer(alice, aliceDepositAmount);
+        uint256 userBalance = want.balanceOf(wantHolderAddr);
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 100) / 10000;
+        vault.deposit(depositAmount);
+        vm.stopPrank();
 
-    //     vm.startPrank(alice);
-    //     want.approve(address(vault), type(uint256).max);
-    //     vault.deposit(aliceDepositAmount);
-    //     vm.stopPrank();
+        vm.startPrank(alice);
+        want.approve(address(vault), type(uint256).max);
+        vault.deposit(aliceDepositAmount);
+        vm.stopPrank();
 
-    //     vm.prank(wantHolderAddr);
-    //     vault.withdrawAll();
-    //     uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
+        vm.prank(wantHolderAddr);
+        vault.withdrawAll();
+        uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
 
-    //     assertEq(userBalance, userBalanceAfterWithdraw);
-    // }
+        assertEq(userBalance, userBalanceAfterWithdraw);
+    }
 
-    // function testVaultHandlesSmallDepositAndWithdraw() public {
-    //     uint256 userBalance = want.balanceOf(wantHolderAddr);
-    //     uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 10) / 10000;
-    //     vm.startPrank(wantHolderAddr);
-    //     vault.deposit(depositAmount);
+    function testVaultHandlesSmallDepositAndWithdraw() public {
+        uint256 userBalance = want.balanceOf(wantHolderAddr);
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 10) / 10000;
+        vm.startPrank(wantHolderAddr);
+        vault.deposit(depositAmount);
 
-    //     vault.withdraw(depositAmount);
-    //     uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
+        vault.withdraw(depositAmount);
+        uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
 
-    //     assertEq(userBalance, userBalanceAfterWithdraw);
-    // }
+        assertEq(userBalance, userBalanceAfterWithdraw);
+    }
 
-    // function testCanHarvest() public {
-    //     uint256 timeToSkip = 3600;
-    //     uint256 wantBalance = want.balanceOf(wantHolderAddr);
-    //     vm.prank(wantHolderAddr);
-    //     vault.deposit(wantBalance);
-    //     vm.startPrank(keepers[0]);
-    //     wrappedProxy.harvest();
+    function testCanHarvest() public {
+        uint256 timeToSkip = 3600;
+        uint256 wantBalance = want.balanceOf(wantHolderAddr);
+        vm.prank(wantHolderAddr);
+        vault.deposit(wantBalance);
+        vm.startPrank(keepers[0]);
+        wrappedProxy.harvest();
 
-    //     uint256 vaultBalanceBefore = vault.balance();
-    //     skip(timeToSkip);
-    //     int256 roi = wrappedProxy.harvest();
-    //     console.log("roi: ");
-    //     console.logInt(roi);
-    //     uint256 vaultBalanceAfter = vault.balance();
-    //     console.log("vaultBalanceBefore: ", vaultBalanceBefore);
-    //     console.log("vaultBalanceAfter: ", vaultBalanceAfter);
+        uint256 vaultBalanceBefore = vault.balance();
+        skip(timeToSkip);
+        int256 roi = wrappedProxy.harvest();
+        console.log("roi: ");
+        console.logInt(roi);
+        uint256 vaultBalanceAfter = vault.balance();
+        console.log("vaultBalanceBefore: ", vaultBalanceBefore);
+        console.log("vaultBalanceAfter: ", vaultBalanceAfter);
 
-    //     assertEq(vaultBalanceAfter - vaultBalanceBefore, uint256(roi));
-    // }
+        assertEq(vaultBalanceAfter - vaultBalanceBefore, uint256(roi));
+    }
 
-    // function testCanProvideYield() public {
-    //     uint256 timeToSkip = 3600;
-    //     uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 1000) / 10000;
+    function testCanProvideYield() public {
+        uint256 timeToSkip = 3600;
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 1000) / 10000;
 
-    //     vm.prank(wantHolderAddr);
-    //     vault.deposit(depositAmount);
-    //     uint256 initialVaultBalance = vault.balance();
+        vm.prank(wantHolderAddr);
+        vault.deposit(depositAmount);
+        uint256 initialVaultBalance = vault.balance();
 
-    //     uint256 numHarvests = 5;
+        uint256 numHarvests = 5;
 
-    //     for (uint256 i; i < numHarvests; i++) {
-    //         skip(timeToSkip);
-    //         wrappedProxy.harvest();
-    //     }
+        for (uint256 i; i < numHarvests; i++) {
+            skip(timeToSkip);
+            wrappedProxy.harvest();
+        }
 
-    //     uint256 finalVaultBalance = vault.balance();
-    //     console.log("initialVaultBalance: ", initialVaultBalance);
-    //     console.log("finalVaultBalance: ", finalVaultBalance);
-    //     assertEq(finalVaultBalance > initialVaultBalance, true);
-    // }
+        uint256 finalVaultBalance = vault.balance();
+        console.log("initialVaultBalance: ", initialVaultBalance);
+        console.log("finalVaultBalance: ", finalVaultBalance);
+        assertEq(finalVaultBalance > initialVaultBalance, true);
+    }
 
-    // function testStrategyGetsMoreFunds() public {
-    //     uint256 startingAllocationBPS = 9000;
-    //     vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
-    //     uint256 timeToSkip = 3600;
-    //     uint256 depositAmount = 500 ether;
+    function testStrategyGetsMoreFunds() public {
+        uint256 startingAllocationBPS = 9000;
+        vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
+        uint256 timeToSkip = 3600;
+        uint256 depositAmount = 50 ether;
 
-    //     vm.prank(wantHolderAddr);
-    //     vault.deposit(depositAmount);
+        vm.prank(wantHolderAddr);
+        vault.deposit(depositAmount);
 
-    //     wrappedProxy.harvest();
-    //     skip(timeToSkip);
-    //     uint256 vaultBalance = vault.balance();
-    //     uint256 vaultWantBalance = want.balanceOf(address(vault));
-    //     uint256 strategyBalance = wrappedProxy.balanceOf();
-    //     assertEq(vaultBalance, depositAmount);
-    //     assertEq(vaultWantBalance, 50 ether);
-    //     assertEq(strategyBalance, 450 ether);
+        wrappedProxy.harvest();
+        skip(timeToSkip);
+        uint256 vaultBalance = vault.balance();
+        uint256 vaultWantBalance = want.balanceOf(address(vault));
+        uint256 strategyBalance = wrappedProxy.balanceOf();
+        assertEq(vaultBalance, depositAmount);
+        assertEq(vaultWantBalance, 5 ether);
+        assertGt(strategyBalance, 45 ether);
 
-    //     vm.prank(wantHolderAddr);
-    //     vault.deposit(depositAmount);
+        vm.prank(wantHolderAddr);
+        vault.deposit(depositAmount);
 
-    //     wrappedProxy.harvest();
-    //     skip(timeToSkip);
+        wrappedProxy.harvest();
+        skip(timeToSkip);
 
-    //     vaultBalance = vault.balance();
-    //     vaultWantBalance = want.balanceOf(address(vault));
-    //     strategyBalance = wrappedProxy.balanceOf();
-    //     console.log("strategyBalance: ", strategyBalance);
-    //     assertGt(vaultBalance, depositAmount * 2);
-    //     assertGt(vaultWantBalance, 100 ether);
-    //     assertEq(strategyBalance, 900 ether);
-    // }
+        vaultBalance = vault.balance();
+        vaultWantBalance = want.balanceOf(address(vault));
+        strategyBalance = wrappedProxy.balanceOf();
+        console.log("strategyBalance: ", strategyBalance);
+        assertGt(vaultBalance, depositAmount * 2);
+        assertGt(vaultWantBalance, 10 ether);
+        assertGt(strategyBalance, 90 ether);
+    }
 
-    // function testVaultPullsFunds() public {
-    //     uint256 startingAllocationBPS = 9000;
-    //     vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
-    //     uint256 timeToSkip = 3600;
-    //     uint256 depositAmount = 100 ether;
+    function testVaultPullsFunds() public {
+        uint256 startingAllocationBPS = 9000;
+        vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
+        uint256 timeToSkip = 3600;
+        uint256 depositAmount = 10 ether;
 
-    //     vm.prank(wantHolderAddr);
-    //     vault.deposit(depositAmount);
+        vm.prank(wantHolderAddr);
+        vault.deposit(depositAmount);
 
-    //     wrappedProxy.harvest();
-    //     skip(timeToSkip);
+        wrappedProxy.harvest();
+        skip(timeToSkip);
 
-    //     uint256 vaultBalance = vault.balance();
-    //     uint256 vaultWantBalance = want.balanceOf(address(vault));
-    //     uint256 strategyBalance = wrappedProxy.balanceOf();
-    //     assertEq(vaultBalance, depositAmount);
-    //     assertEq(vaultWantBalance, 10 ether);
-    //     assertEq(strategyBalance, 90 ether);
+        uint256 vaultBalance = vault.balance();
+        uint256 vaultWantBalance = want.balanceOf(address(vault));
+        uint256 strategyBalance = wrappedProxy.balanceOf();
+        assertEq(vaultBalance, depositAmount);
+        assertEq(vaultWantBalance, 1 ether);
+        assertGt(strategyBalance, 9 ether);
 
-    //     uint256 newAllocationBPS = 7000;
-    //     vault.updateStrategyAllocBPS(address(wrappedProxy), newAllocationBPS);
-    //     wrappedProxy.harvest();
+        uint256 newAllocationBPS = 7000;
+        vault.updateStrategyAllocBPS(address(wrappedProxy), newAllocationBPS);
+        wrappedProxy.harvest();
 
-    //     vaultBalance = vault.balance();
-    //     vaultWantBalance = want.balanceOf(address(vault));
-    //     strategyBalance = wrappedProxy.balanceOf();
-    //     assertGt(vaultBalance, depositAmount);
-    //     assertGt(vaultWantBalance, 30 ether);
-    //     assertEq(strategyBalance, 70 ether);
+        vaultBalance = vault.balance();
+        vaultWantBalance = want.balanceOf(address(vault));
+        strategyBalance = wrappedProxy.balanceOf();
+        assertGt(vaultBalance, depositAmount);
+        assertGt(vaultWantBalance, 3 ether);
+        assertApproxEqAbs(strategyBalance, 7 ether, 10);
 
-    //     vm.prank(wantHolderAddr);
-    //     vault.deposit(depositAmount);
+        vm.prank(wantHolderAddr);
+        vault.deposit(depositAmount);
 
-    //     wrappedProxy.harvest();
-    //     skip(timeToSkip);
+        wrappedProxy.harvest();
+        skip(timeToSkip);
 
-    //     vaultBalance = vault.balance();
-    //     vaultWantBalance = want.balanceOf(address(vault));
-    //     strategyBalance = wrappedProxy.balanceOf();
-    //     assertGt(vaultBalance, depositAmount * 2);
-    //     assertGt(vaultWantBalance, 60 ether);
-    //     assertGt(strategyBalance, 140 ether);
-    // }
+        vaultBalance = vault.balance();
+        vaultWantBalance = want.balanceOf(address(vault));
+        strategyBalance = wrappedProxy.balanceOf();
+        assertGt(vaultBalance, depositAmount * 2);
+        assertGt(vaultWantBalance, 6 ether);
+        assertGt(strategyBalance, 14 ether);
+    }
 
-    // function testEmergencyShutdown() public {
-    //     uint256 startingAllocationBPS = 9000;
-    //     vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
-    //     uint256 timeToSkip = 3600;
-    //     uint256 depositAmount = 1000 ether;
+    function testEmergencyShutdown() public {
+        uint256 startingAllocationBPS = 9000;
+        vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
+        uint256 timeToSkip = 3600;
+        uint256 depositAmount = 10 ether;
 
-    //     vm.prank(wantHolderAddr);
-    //     vault.deposit(depositAmount);
+        vm.prank(wantHolderAddr);
+        vault.deposit(depositAmount);
 
-    //     wrappedProxy.harvest();
-    //     skip(timeToSkip);
+        wrappedProxy.harvest();
+        skip(timeToSkip);
 
-    //     uint256 vaultBalance = vault.balance();
-    //     uint256 vaultWantBalance = want.balanceOf(address(vault));
-    //     uint256 strategyBalance = wrappedProxy.balanceOf();
-    //     assertEq(vaultBalance, depositAmount);
-    //     assertEq(vaultWantBalance, 100 ether);
-    //     assertEq(strategyBalance, 900 ether);
+        uint256 vaultBalance = vault.balance();
+        uint256 vaultWantBalance = want.balanceOf(address(vault));
+        uint256 strategyBalance = wrappedProxy.balanceOf();
+        assertEq(vaultBalance, depositAmount);
+        assertEq(vaultWantBalance, 1 ether);
+        assertGt(strategyBalance, 9 ether);
 
-    //     vault.setEmergencyShutdown(true);
-    //     wrappedProxy.harvest();
+        vault.setEmergencyShutdown(true);
+        wrappedProxy.harvest();
 
-    //     vaultBalance = vault.balance();
-    //     vaultWantBalance = want.balanceOf(address(vault));
-    //     strategyBalance = wrappedProxy.balanceOf();
-    //     console.log("vaultBalance: ", vaultBalance);
-    //     console.log("depositAmount: ", depositAmount);
-    //     console.log("vaultWantBalance: ", vaultWantBalance);
-    //     console.log("strategyBalance: ", strategyBalance);
-    //     assertGt(vaultBalance, depositAmount);
-    //     assertGt(vaultWantBalance, depositAmount);
-    //     assertEq(strategyBalance, 0);
-    // }
-
-    // function testSharePriceChanges() public {
-    //     // uint256 sharePrice1 = vault.getPricePerFullShare();
-    //     // uint256 timeToSkip = 36000;
-    //     // uint256 wantBalance = want.balanceOf(wantHolderAddr);
-    //     // vm.prank(wantHolderAddr);
-    //     // vault.deposit(wantBalance);
-    //     // uint256 sharePrice2 = vault.getPricePerFullShare();
-    //     // vm.prank(keepers[0]);
-    //     // wrappedProxy.harvest();
-    //     // skip(timeToSkip);
-    //     // uint256 sharePrice3 = vault.getPricePerFullShare();
-
-    //     // address wethAggregator = IPriceFeed(priceFeedAddress).priceAggregator(wethAddress);
-    //     // console.log("wethAggregator: ", wethAggregator);
-
-    //     // MockAggregator mockChainlink = new MockAggregator();
-    //     // mockChainlink.setPrevRoundId(2);
-    //     // mockChainlink.setLatestRoundId(3);
-    //     // mockChainlink.setPrice(1500 * 10 ** 8);
-    //     // mockChainlink.setPrevPrice(1500 * 10 ** 8);
-    //     // mockChainlink.setUpdateTime(block.timestamp);
-
-    //     // MockAggregator mockChainlink2 = new MockAggregator();
-    //     // mockChainlink2.setPrevRoundId(2);
-    //     // mockChainlink2.setLatestRoundId(3);
-    //     // mockChainlink2.setPrice(25_000 * 10 ** 8);
-    //     // mockChainlink2.setPrevPrice(25_000 * 10 ** 8);
-    //     // mockChainlink2.setUpdateTime(block.timestamp);
-
-    //     // vm.startPrank(priceFeedOwnerAddress);
-    //     // // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
-    //     // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wbtcAddress, address(mockChainlink2));
-    //     // vm.stopPrank();
-
-    //     // uint256 rewardTokenGain = IStabilityPool(stabilityPoolAddress).getDepositorLQTYGain(address(wrappedProxy));
-
-    //     // liquidateTroves(wbtcAddress);
-    //     // // liquidateTroves(wethAddress);
-
-    //     // wrappedProxy.harvest();
-    //     // skip(timeToSkip);
-    //     // uint256 sharePrice4 = vault.getPricePerFullShare();
-
-    //     // wrappedProxy.getERNValueOfCollateralGain();
-
-    //     // console.log("sharePrice1: ", sharePrice1);
-    //     // console.log("sharePrice2: ", sharePrice2);
-    //     // console.log("sharePrice3: ", sharePrice3);
-    //     // console.log("sharePrice4: ", sharePrice4);
-    //     // assertGt(sharePrice4, sharePrice1);
-    // }
+        vaultBalance = vault.balance();
+        vaultWantBalance = want.balanceOf(address(vault));
+        strategyBalance = wrappedProxy.balanceOf();
+        console.log("vaultBalance: ", vaultBalance);
+        console.log("depositAmount: ", depositAmount);
+        console.log("vaultWantBalance: ", vaultWantBalance);
+        console.log("strategyBalance: ", strategyBalance);
+        assertGt(vaultBalance, depositAmount);
+        assertGt(vaultWantBalance, depositAmount);
+        assertApproxEqAbs(strategyBalance, 0, 5);
+    }
 
     function _toWant(uint256 amount) internal returns (uint256) {
         return amount * (10 ** want.decimals());

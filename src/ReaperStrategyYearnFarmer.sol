@@ -53,9 +53,9 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      * @dev Emergency function to quickly exit the position and return the funds to the vault
      */
     function _liquidateAllPositions() internal override returns (uint256 amountFreed) {
-        // _withdraw(type(uint256).max);
-        // _harvestCore();
-        // return balanceOfWant();
+        _withdrawAll();
+        _harvestCore();
+        return balanceOfWant();
     }
 
     /**
@@ -122,16 +122,23 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
             uint256 pricePerShare = yearnVault.pricePerShare();
             console.log("pricePerShare: ", pricePerShare);
             uint256 sharesToWithdraw = withdrawable * 1 ether / pricePerShare;
-            console.log("sharesToWithdraw: ", sharesToWithdraw);
-            uint256 unstakedVaultShares = yearnVault.balanceOf(address(this));
-            if (unstakedVaultShares < sharesToWithdraw) {
-                uint256 sharesToUnstake = sharesToWithdraw - unstakedVaultShares;
-                stakingRewards.withdraw(sharesToUnstake);
+            if (sharesToWithdraw > 1) {
+                console.log("sharesToWithdraw: ", sharesToWithdraw);
+                uint256 unstakedVaultShares = yearnVault.balanceOf(address(this));
+                if (unstakedVaultShares < sharesToWithdraw) {
+                    uint256 sharesToUnstake = sharesToWithdraw - unstakedVaultShares;
+                    stakingRewards.withdraw(sharesToUnstake);
+                }
+                unstakedVaultShares = yearnVault.balanceOf(address(this));
+                sharesToWithdraw = MathUpgradeable.min(unstakedVaultShares, sharesToWithdraw);
+                yearnVault.withdraw(sharesToWithdraw);
             }
-            unstakedVaultShares = yearnVault.balanceOf(address(this));
-            sharesToWithdraw = MathUpgradeable.min(unstakedVaultShares, sharesToWithdraw);
-            yearnVault.withdraw(sharesToWithdraw);
         }
+    }
+
+    function _withdrawAll() internal {
+        stakingRewards.exit();
+        yearnVault.withdraw();
     }
 
     /**
