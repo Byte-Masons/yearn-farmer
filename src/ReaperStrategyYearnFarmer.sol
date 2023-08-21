@@ -65,10 +65,11 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         stakingRewards.getReward();
         uint256 yvOpBalance = YV_OP.balanceOf((address(this)));
         if (yvOpBalance != 0) {
-            YV_OP.withdraw();
             bool isOpVault = address(yearnVault) == address(YV_OP);
             if (isOpVault) {
                 _stake();
+            } else {
+                YV_OP.withdraw();
             }
         }
     }
