@@ -11,7 +11,6 @@ import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.so
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 import {ReaperSwapper} from "vault-v2/ReaperSwapper.sol";
-import "forge-std/console.sol";
 
 /**
  * @dev Strategy to wrap and deposit in to a Yearn vault
@@ -65,7 +64,6 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
     function _beforeHarvestSwapSteps() internal override {
         stakingRewards.getReward();
         uint256 yvOpBalance = YV_OP.balanceOf((address(this)));
-        console.log("yvOpBalance: ", yvOpBalance);
         if (yvOpBalance != 0) {
             YV_OP.withdraw();
             bool isOpVault = address(yearnVault) == address(YV_OP);
@@ -73,8 +71,6 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
                 _stake();
             }
         }
-        uint256 opBalance = IERC20Upgradeable(YV_OP.token()).balanceOf((address(this)));
-        console.log("opBalance: ", opBalance);
     }
 
     /**
@@ -84,7 +80,6 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      */
     function _deposit(uint256 toReinvest) internal override {
         if (toReinvest != 0) {
-            console.log("toReinvest: ", toReinvest);
             IERC20Upgradeable(want).safeIncreaseAllowance(address(yearnVault), toReinvest);
             yearnVault.deposit(toReinvest);
             _stake();
@@ -95,16 +90,11 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      * @dev Withdraws funds and sends them back to the vault.
      */
     function _withdraw(uint256 _amount) internal override {
-        console.log("withdraw _amount: ", _amount);
-        console.log("balanceOfPool(): ", balanceOfPool());
         uint256 withdrawable = MathUpgradeable.min(_amount, balanceOfPool());
         if (withdrawable != 0) {
-            console.log("withdrawable: ", withdrawable);
             uint256 pricePerShare = yearnVault.pricePerShare();
-            console.log("pricePerShare: ", pricePerShare);
             uint256 sharesToWithdraw = withdrawable * 1 ether / pricePerShare;
             if (sharesToWithdraw > 1) {
-                console.log("sharesToWithdraw: ", sharesToWithdraw);
                 uint256 unstakedVaultShares = yearnVault.balanceOf(address(this));
                 if (unstakedVaultShares < sharesToWithdraw) {
                     uint256 sharesToUnstake = sharesToWithdraw - unstakedVaultShares;
@@ -117,6 +107,9 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         }
     }
 
+    /**
+     * @dev Exits fully out of Yearn vaults and staking contract
+     */
     function _withdrawAll() internal {
         stakingRewards.exit();
         yearnVault.withdraw();
@@ -124,8 +117,8 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
 
     /**
      * @dev Function to calculate the total {want} held by the strat.
-     * It takes into account both the funds in hand, the funds in the stability pool,
-     * and also the balance of collateral tokens + USDC.
+     * It takes in to account the free balance and the amount deposited
+     * to the yearn vault and in the staking contract.
      */
     function _estimatedTotalAssets() internal override returns (uint256) {
         return balanceOfPool() + balanceOfWant();
@@ -140,12 +133,12 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         uint256 stakedVaultShares = stakingRewards.balanceOf(address(this));
         uint256 vaultShares = unstakedVaultShares + stakedVaultShares;
         uint256 pricePerShare = yearnVault.pricePerShare();
-        // console.log("vaultShares: ", vaultShares);
-        // console.log("pricePerShare: ", pricePerShare);
-        // console.log("balanceOfPool: ", vaultShares * pricePerShare / 1 ether);
         return vaultShares * pricePerShare / 1 ether;
     }
 
+    /**
+     * @dev Stakes the Yearn vault tokens in the staking contract
+     */
     function _stake() internal {
         uint256 toStake = yearnVault.balanceOf(address(this));
         yearnVault.increaseAllowance(address(stakingRewards), toStake);
