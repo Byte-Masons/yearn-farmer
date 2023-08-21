@@ -5,18 +5,23 @@ pragma solidity ^0.8.0;
 import "vault-v2/interfaces/ISwapper.sol";
 import {ReaperBaseStrategyv4} from "vault-v2/ReaperBaseStrategyv4.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
-import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
+import {IYearnVault} from "./interfaces/IYearnVault.sol";
+import {IStakingRewards} from "./interfaces/IStakingRewards.sol";
+import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 import {ReaperSwapper} from "vault-v2/ReaperSwapper.sol";
+import "forge-std/console.sol";
 
 /**
  * @dev Strategy to wrap and deposit in to a Yearn vault
  */
 contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
-    using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
+    using SafeERC20Upgradeable for IERC20Upgradeable;
 
     // 3rd-party contract addresses
+    IYearnVault public yearnVault;
+    IStakingRewards public stakingRewards;
 
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
@@ -25,18 +30,23 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
     function initialize(
         address _vault,
         address _swapper,
-        address _want,
         address[] memory _strategists,
         address[] memory _multisigRoles,
-        address[] memory _keepers
+        address[] memory _keepers,
+        address _yearnVault,
+        address _stakingRewards
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_swapper != address(0), "swapper is 0 address");
         require(_strategists.length != 0, "no strategists");
         require(_multisigRoles.length == 3, "invalid amount of multisig roles");
-        require(_want != address(0), "want is 0 address");
-
-        __ReaperBaseStrategy_init(_vault, _swapper, _want, _strategists, _multisigRoles, _keepers);
+        require(_yearnVault != address(0), "yearnVault is 0 address");
+        require(_stakingRewards != address(0), "stakingRewards is 0 address");
+        yearnVault = IYearnVault(_yearnVault);
+        stakingRewards = IStakingRewards(_stakingRewards);
+        require(stakingRewards.stakingToken() == _yearnVault, "stakingRewards contract does not match vault");
+        address want = yearnVault.token();
+        __ReaperBaseStrategy_init(_vault, _swapper, want, _strategists, _multisigRoles, _keepers);
     }
 
     /**
@@ -90,18 +100,38 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      * or when funds are reinvested in to the strategy.
      */
     function _deposit(uint256 toReinvest) internal override {
-        // if (toReinvest != 0) {
-        //     stabilityPool.provideToSP(toReinvest);
-        // }
+        if (toReinvest != 0) {
+            console.log("toReinvest: ", toReinvest);
+            IERC20Upgradeable(want).safeIncreaseAllowance(address(yearnVault), toReinvest);
+            yearnVault.deposit(toReinvest);
+            uint256 toStake = yearnVault.balanceOf(address(this));
+            yearnVault.increaseAllowance(address(stakingRewards), toStake);
+            stakingRewards.stake(toStake);
+        }
     }
 
     /**
      * @dev Withdraws funds and sends them back to the vault.
      */
     function _withdraw(uint256 _amount) internal override {
-        // if (_hasInitialDeposit(address(this))) {
-        //     stabilityPool.withdrawFromSP(_amount);
-        // }
+        console.log("withdraw _amount: ", _amount);
+        console.log("balanceOfPool(): ", balanceOfPool());
+        uint256 withdrawable = MathUpgradeable.min(_amount, balanceOfPool());
+        if (withdrawable != 0) {
+            console.log("withdrawable: ", withdrawable);
+            uint256 pricePerShare = yearnVault.pricePerShare();
+            console.log("pricePerShare: ", pricePerShare);
+            uint256 sharesToWithdraw = withdrawable * 1 ether / pricePerShare;
+            console.log("sharesToWithdraw: ", sharesToWithdraw);
+            uint256 unstakedVaultShares = yearnVault.balanceOf(address(this));
+            if (unstakedVaultShares < sharesToWithdraw) {
+                uint256 sharesToUnstake = sharesToWithdraw - unstakedVaultShares;
+                stakingRewards.withdraw(sharesToUnstake);
+            }
+            unstakedVaultShares = yearnVault.balanceOf(address(this));
+            sharesToWithdraw = MathUpgradeable.min(unstakedVaultShares, sharesToWithdraw);
+            yearnVault.withdraw(sharesToWithdraw);
+        }
     }
 
     /**
@@ -110,16 +140,21 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      * and also the balance of collateral tokens + USDC.
      */
     function _estimatedTotalAssets() internal override returns (uint256) {
-        // return balanceOfPoolUsingPriceFeed() + balanceOfWant();
+        return balanceOfPool() + balanceOfWant();
     }
 
     /**
-     * @dev Estimates the amount of ERN held in the stability pool and any
-     * balance of collateral or USDC. The values are converted using oracles and
-     * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
+     * @dev Estimates the amount of want held in the Yearn vault or 
+     * staking contract.
      */
     function balanceOfPool() public view override returns (uint256) {
-        // uint256 ernCollateralValue = getERNValueOfCollateralGain();
-        // return balanceOfPoolCommon(ernCollateralValue);
+        uint256 unstakedVaultShares = yearnVault.balanceOf(address(this));
+        uint256 stakedVaultShares = stakingRewards.balanceOf(address(this));
+        uint256 vaultShares = unstakedVaultShares + stakedVaultShares;
+        uint256 pricePerShare = yearnVault.pricePerShare();
+        // console.log("vaultShares: ", vaultShares);
+        // console.log("pricePerShare: ", pricePerShare);
+        // console.log("balanceOfPool: ", vaultShares * pricePerShare / 1 ether);
+        return vaultShares * pricePerShare / 1 ether;
     }
 }

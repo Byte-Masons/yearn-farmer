@@ -26,15 +26,19 @@ contract ReaperStrategyYearnFarmerTest is Test {
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
+    address public wethYearnVault = 0x5B977577Eb8a480f63e11FC615D6753adB8652Ae;
+    address public yearnVault = wethYearnVault;
+    address public wethStakingRewards = 0xE35Fec3895Dcecc7d2a91e8ae4fF3c0d43ebfFE0;
+    address public stakingRewards = wethStakingRewards;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
     address public adminAddress = 0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B;
     address public guardianAddress = 0xb0C9D5851deF8A2Aac4A23031CA2610f8C3483F9;
 
-    address public wantAddress = 0xc5b001DC33727F8F26880B184090D3E252470D45;
     address public wethAddress = 0x4200000000000000000000000000000000000006;
     address public wbtcAddress = 0x68f180fcCe6836688e9084f035309E29Bf0A2095;
     address public opAddress = 0x4200000000000000000000000000000000000042;
+    address public wantAddress = wethAddress;
 
     address public strategistAddr = 0x1A20D7A31e5B3Bc5f02c8A146EF6f394502a10c4;
     address public wantHolderAddr = strategistAddr;
@@ -64,7 +68,6 @@ contract ReaperStrategyYearnFarmerTest is Test {
     address[] public multisigRoles = [superAdminAddress, adminAddress, guardianAddress];
 
     // Initialized during set up in initial tests
-    // vault, strategy, want, wftm, owner, wantHolder, strategist, guardian, admin, superAdmin, unassignedRole
     ReaperVaultV2 public vault;
     string public vaultName = "Yearn farmer Vault";
     string public vaultSymbol = "rf-yv-WETH";
@@ -77,7 +80,6 @@ contract ReaperStrategyYearnFarmerTest is Test {
     ISwapper public swapper;
 
     ERC20 public want = ERC20(wantAddress);
-    ERC20 public wftm = ERC20(wethAddress);
 
     function setUp() public {
         // Forking
@@ -98,13 +100,21 @@ contract ReaperStrategyYearnFarmerTest is Test {
         proxy = new ERC1967Proxy(address(implementation), "");
         wrappedProxy = ReaperStrategyYearnFarmer(address(proxy));
 
+        // address _vault,
+        // address _swapper,
+        // address[] memory _strategists,
+        // address[] memory _multisigRoles,
+        // address[] memory _keepers,
+        // address _yearnVault
+
         wrappedProxy.initialize(
             address(vault),
             address(swapper),
-            wantAddress,
             strategists,
             multisigRoles,
-            keepers
+            keepers,
+            yearnVault,
+            stakingRewards
         );
 
         uint256 feeBPS = 1000;
@@ -173,17 +183,25 @@ contract ReaperStrategyYearnFarmerTest is Test {
 
     ///------ VAULT AND STRATEGY------\\\
 
-    // function testCanTakeDeposits() public {
-    //     vm.startPrank(wantHolderAddr);
-    //     uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 2000) / 10000;
-    //     console.log("want.balanceOf(wantHolderAddr): ", want.balanceOf(wantHolderAddr));
-    //     console.log(depositAmount);
-    //     vault.deposit(depositAmount);
+    function testCanTakeDeposits() public {
+        vm.startPrank(wantHolderAddr);
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 2000) / 10000;
+        console.log("want.balanceOf(wantHolderAddr): ", want.balanceOf(wantHolderAddr));
+        console.log(depositAmount);
+        vault.deposit(depositAmount);
 
-    //     uint256 newVaultBalance = vault.balance();
-    //     console.log(newVaultBalance);
-    //     assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
-    // }
+        uint256 newVaultBalance = vault.balance();
+        console.log(newVaultBalance);
+        assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
+
+        wrappedProxy.harvest();
+        _skipBlockAndTime(50);
+        wrappedProxy.harvest();
+
+        newVaultBalance = vault.balance();
+        console.log(newVaultBalance);
+        assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
+    }
 
     // function testVaultCanMintUserPoolShare() public {
     //     address alice = makeAddr("alice");
@@ -215,16 +233,24 @@ contract ReaperStrategyYearnFarmerTest is Test {
     //     assertEq(aliceVaultBalance, 0);
     // }
 
-    // function testVaultAllowsWithdrawals() public {
-    //     uint256 userBalance = want.balanceOf(wantHolderAddr);
-    //     uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 5000) / 10000;
-    //     vm.startPrank(wantHolderAddr);
-    //     vault.deposit(depositAmount);
-    //     vault.withdrawAll();
-    //     uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
+    function testVaultAllowsWithdrawals() public {
+        uint256 userBalance = want.balanceOf(wantHolderAddr);
+        console.log("userBalance: ", userBalance);
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 5000) / 10000;
+        console.log("depositAmount: ", depositAmount);
+        vm.startPrank(wantHolderAddr);
+        vault.deposit(depositAmount);
 
-    //     assertEq(userBalance, userBalanceAfterWithdraw);
-    // }
+        wrappedProxy.harvest();
+        _skipBlockAndTime(50);
+        wrappedProxy.harvest();
+        
+        vault.withdrawAll();
+        uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
+        console.log("userBalanceAfterWithdraw: ", userBalanceAfterWithdraw);
+
+        assertEq(userBalance, userBalanceAfterWithdraw);
+    }
 
     // function testVaultAllowsSmallWithdrawal() public {
     //     address alice = makeAddr("alice");
