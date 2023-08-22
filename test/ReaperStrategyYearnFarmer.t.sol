@@ -107,8 +107,16 @@ contract ReaperStrategyYearnFarmerTest is Test {
         // address[] memory _keepers,
         // address _yearnVault
 
+        bool shouldStake = true;
         wrappedProxy.initialize(
-            address(vault), address(swapper), strategists, multisigRoles, keepers, yearnVault, stakingRewards
+            address(vault),
+            address(swapper),
+            strategists,
+            multisigRoles,
+            keepers,
+            yearnVault,
+            stakingRewards,
+            shouldStake
         );
 
         uint256 feeBPS = 1000;

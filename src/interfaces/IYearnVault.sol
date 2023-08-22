@@ -9,6 +9,11 @@ interface IYearnVault {
     function token() external view returns (address);
 
     /**
+     * @dev The decimals for the vault token and the underlying asset.
+     */
+    function decimals() external view returns (uint256);
+
+    /**
      * @dev Deposit in to the vault for _amount
      */
     function deposit(uint256 _amount) external;
