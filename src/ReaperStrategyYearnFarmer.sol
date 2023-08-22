@@ -126,7 +126,7 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
     }
 
     /**
-     * @dev Estimates the amount of want held in the Yearn vault or 
+     * @dev Estimates the amount of want held in the Yearn vault or
      * staking contract.
      */
     function balanceOfPool() public view override returns (uint256) {

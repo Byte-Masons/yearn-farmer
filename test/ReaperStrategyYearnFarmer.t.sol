@@ -108,13 +108,7 @@ contract ReaperStrategyYearnFarmerTest is Test {
         // address _yearnVault
 
         wrappedProxy.initialize(
-            address(vault),
-            address(swapper),
-            strategists,
-            multisigRoles,
-            keepers,
-            yearnVault,
-            stakingRewards
+            address(vault), address(swapper), strategists, multisigRoles, keepers, yearnVault, stakingRewards
         );
 
         uint256 feeBPS = 1000;
@@ -146,7 +140,7 @@ contract ReaperStrategyYearnFarmerTest is Test {
             minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.ChainlinkBased, absoluteOrBPSValue: 9950}),
             exchangeAddress: uniV3Router
         });
-        
+
         ReaperBaseStrategyv4.SwapStep[] memory steps = new ReaperBaseStrategyv4.SwapStep[](1);
         steps[0] = step1;
         wrappedProxy.setHarvestSwapSteps(steps);
@@ -258,7 +252,7 @@ contract ReaperStrategyYearnFarmerTest is Test {
         wrappedProxy.harvest();
         _skipBlockAndTime(50);
         wrappedProxy.harvest();
-        
+
         vault.withdrawAll();
         uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
         console.log("userBalanceAfterWithdraw: ", userBalanceAfterWithdraw);
