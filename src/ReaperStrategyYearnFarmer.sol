@@ -172,4 +172,32 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
             stakingRewards.exit();
         }
     }
+
+    /**
+     * Liquidate up to `_amountNeeded` of `want` of this strategy's positions,
+     * irregardless of slippage. Any excess will be re-invested with `_adjustPosition()`.
+     * This function should return the amount of `want` tokens made available by the
+     * liquidation. If there is a difference between them, `loss` indicates whether the
+     * difference is due to a realized loss, or if there is some other sitution at play
+     * (e.g. locked funds) where the amount made available is less than what is needed.
+     *
+     * NOTE: The invariant `liquidatedAmount + loss <= _amountNeeded` should always be maintained
+     */
+    function _liquidatePosition(uint256 _amountNeeded)
+        internal
+        override
+        returns (uint256 liquidatedAmount, uint256 loss)
+    {
+        uint256 wantBal = balanceOfWant();
+        if (wantBal < _amountNeeded) {
+            _withdraw(_amountNeeded - wantBal);
+            liquidatedAmount = MathUpgradeable.min(_amountNeeded, balanceOfWant());
+        } else {
+            liquidatedAmount = _amountNeeded;
+        }
+
+        if (_amountNeeded > liquidatedAmount) {
+            loss = _amountNeeded - liquidatedAmount;
+        }
+    }
 }
