@@ -88,7 +88,7 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
     }
 
     /**
-     * @dev Withdraws funds and sends them back to the vault.
+     * @dev withdraws funds from external contracts.
      */
     function _withdraw(uint256 _amount) internal override {
         uint256 withdrawable = MathUpgradeable.min(_amount, balanceOfPool());
