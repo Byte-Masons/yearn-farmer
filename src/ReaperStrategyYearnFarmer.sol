@@ -105,7 +105,8 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         uint256 unstakedVaultShares = yearnVault.balanceOf(address(this));
         if (unstakedVaultShares < sharesToWithdraw) {
             uint256 sharesToUnstake = sharesToWithdraw - unstakedVaultShares;
-            stakingRewards.withdraw(sharesToUnstake);
+            uint256 stakedVaultShares = stakingRewards.balanceOf(address(this));
+            stakingRewards.withdraw(MathUpgradeable.min(sharesToUnstake, stakedVaultShares));
         }
         unstakedVaultShares = yearnVault.balanceOf(address(this));
         sharesToWithdraw = MathUpgradeable.min(unstakedVaultShares, sharesToWithdraw);
