@@ -92,12 +92,14 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      */
     function _withdraw(uint256 _amount) internal override {
         uint256 withdrawable = MathUpgradeable.min(_amount, balanceOfPool());
+
         if (withdrawable == 0) {
             return;
         }
 
         uint256 pricePerShare = yearnVault.pricePerShare();
         uint256 sharesToWithdraw = withdrawable * 10 ** yearnVault.decimals() / pricePerShare;
+
         if (sharesToWithdraw <= 1) {
             return;
         }
@@ -106,10 +108,19 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         if (unstakedVaultShares < sharesToWithdraw) {
             uint256 sharesToUnstake = sharesToWithdraw - unstakedVaultShares;
             uint256 stakedVaultShares = stakingRewards.balanceOf(address(this));
-            stakingRewards.withdraw(MathUpgradeable.min(sharesToUnstake, stakedVaultShares));
+            sharesToUnstake = MathUpgradeable.min(sharesToUnstake, stakedVaultShares);
+            if (sharesToUnstake != 0) {
+                stakingRewards.withdraw(sharesToUnstake);
+            }
         }
+
         unstakedVaultShares = yearnVault.balanceOf(address(this));
         sharesToWithdraw = MathUpgradeable.min(unstakedVaultShares, sharesToWithdraw);
+
+        if (sharesToWithdraw <= 1) {
+            return;
+        }
+
         yearnVault.withdraw(sharesToWithdraw);
     }
 
