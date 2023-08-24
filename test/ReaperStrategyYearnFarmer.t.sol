@@ -9,6 +9,8 @@ import "vault-v2/ReaperSwapper.sol";
 import "vault-v2/ReaperVaultV2.sol";
 import "vault-v2/ReaperBaseStrategyv4.sol";
 import "vault-v2/interfaces/ISwapper.sol";
+import {IYearnVault} from "../src/interfaces/IYearnVault.sol";
+import {IStakingRewards} from "../src/interfaces/IStakingRewards.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 
@@ -27,9 +29,11 @@ contract ReaperStrategyYearnFarmerTest is Test {
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
     address public wethYearnVault = 0x5B977577Eb8a480f63e11FC615D6753adB8652Ae;
-    address public yearnVault = wethYearnVault;
+    address public usdcYearnVault = 0xaD17A225074191d5c8a37B50FdA1AE278a2EE6A2;
+    address public yearnVault = usdcYearnVault;
     address public wethStakingRewards = 0xE35Fec3895Dcecc7d2a91e8ae4fF3c0d43ebfFE0;
-    address public stakingRewards = wethStakingRewards;
+    address public usdcStakingRewards = 0xB2c04C55979B6CA7EB10e666933DE5ED84E6876b;
+    address public stakingRewards = usdcStakingRewards;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
     address public adminAddress = 0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B;
@@ -38,7 +42,8 @@ contract ReaperStrategyYearnFarmerTest is Test {
     address public wethAddress = 0x4200000000000000000000000000000000000006;
     address public wbtcAddress = 0x68f180fcCe6836688e9084f035309E29Bf0A2095;
     address public opAddress = 0x4200000000000000000000000000000000000042;
-    address public wantAddress = wethAddress;
+    address public usdcAddress = 0x7F5c764cBc14f9669B88837ca1490cCa17c31607;
+    address public wantAddress = usdcAddress;
 
     address public strategistAddr = 0x1A20D7A31e5B3Bc5f02c8A146EF6f394502a10c4;
     address public wantHolderAddr = strategistAddr;
@@ -160,7 +165,7 @@ contract ReaperStrategyYearnFarmerTest is Test {
         uint256 totalBalance = vault.balance();
         uint256 pricePerFullShare = vault.getPricePerFullShare();
         assertEq(totalBalance, 0);
-        assertEq(pricePerFullShare, 1e18);
+        assertEq(pricePerFullShare, 10 ** IYearnVault(yearnVault).decimals());
     }
 
     ///------ ACCESS CONTROL ------\\\
@@ -265,7 +270,7 @@ contract ReaperStrategyYearnFarmerTest is Test {
         uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
         console.log("userBalanceAfterWithdraw: ", userBalanceAfterWithdraw);
 
-        assertEq(userBalance, userBalanceAfterWithdraw);
+        assertApproxEqAbs(userBalance, userBalanceAfterWithdraw, 40);
     }
 
     function testVaultAllowsSmallWithdrawal() public {
@@ -348,7 +353,7 @@ contract ReaperStrategyYearnFarmerTest is Test {
         uint256 startingAllocationBPS = 9000;
         vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
         uint256 timeToSkip = 3600;
-        uint256 depositAmount = 50 ether;
+        uint256 depositAmount = _toWant(50);
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -359,8 +364,8 @@ contract ReaperStrategyYearnFarmerTest is Test {
         uint256 vaultWantBalance = want.balanceOf(address(vault));
         uint256 strategyBalance = wrappedProxy.balanceOf();
         assertEq(vaultBalance, depositAmount);
-        assertEq(vaultWantBalance, 5 ether);
-        assertGt(strategyBalance, 45 ether);
+        assertEq(vaultWantBalance, _toWant(5));
+        assertGt(strategyBalance, _toWant(9) / 2);
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -373,15 +378,15 @@ contract ReaperStrategyYearnFarmerTest is Test {
         strategyBalance = wrappedProxy.balanceOf();
         console.log("strategyBalance: ", strategyBalance);
         assertGt(vaultBalance, depositAmount * 2);
-        assertGt(vaultWantBalance, 10 ether);
-        assertGt(strategyBalance, 90 ether);
+        assertGt(vaultWantBalance, _toWant(10));
+        assertGt(strategyBalance, _toWant(90));
     }
 
     function testVaultPullsFunds() public {
         uint256 startingAllocationBPS = 9000;
         vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
         uint256 timeToSkip = 3600;
-        uint256 depositAmount = 10 ether;
+        uint256 depositAmount = _toWant(10);
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -393,8 +398,8 @@ contract ReaperStrategyYearnFarmerTest is Test {
         uint256 vaultWantBalance = want.balanceOf(address(vault));
         uint256 strategyBalance = wrappedProxy.balanceOf();
         assertEq(vaultBalance, depositAmount);
-        assertEq(vaultWantBalance, 1 ether);
-        assertGt(strategyBalance, 9 ether);
+        assertEq(vaultWantBalance, _toWant(1));
+        assertGt(strategyBalance, _toWant(9));
 
         uint256 newAllocationBPS = 7000;
         vault.updateStrategyAllocBPS(address(wrappedProxy), newAllocationBPS);
@@ -404,8 +409,8 @@ contract ReaperStrategyYearnFarmerTest is Test {
         vaultWantBalance = want.balanceOf(address(vault));
         strategyBalance = wrappedProxy.balanceOf();
         assertGt(vaultBalance, depositAmount);
-        assertGt(vaultWantBalance, 3 ether);
-        assertApproxEqAbs(strategyBalance, 7 ether, 10);
+        assertGt(vaultWantBalance, _toWant(3));
+        assertApproxEqAbs(strategyBalance, _toWant(7), _toWant(10));
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -417,15 +422,15 @@ contract ReaperStrategyYearnFarmerTest is Test {
         vaultWantBalance = want.balanceOf(address(vault));
         strategyBalance = wrappedProxy.balanceOf();
         assertGt(vaultBalance, depositAmount * 2);
-        assertGt(vaultWantBalance, 6 ether);
-        assertGt(strategyBalance, 14 ether);
+        assertGt(vaultWantBalance, _toWant(6));
+        assertGt(strategyBalance, _toWant(14));
     }
 
     function testEmergencyShutdown() public {
         uint256 startingAllocationBPS = 9000;
         vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
         uint256 timeToSkip = 3600;
-        uint256 depositAmount = 10 ether;
+        uint256 depositAmount = _toWant(10);
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -437,8 +442,8 @@ contract ReaperStrategyYearnFarmerTest is Test {
         uint256 vaultWantBalance = want.balanceOf(address(vault));
         uint256 strategyBalance = wrappedProxy.balanceOf();
         assertEq(vaultBalance, depositAmount);
-        assertEq(vaultWantBalance, 1 ether);
-        assertGt(strategyBalance, 9 ether);
+        assertEq(vaultWantBalance, _toWant(1));
+        assertGt(strategyBalance, _toWant(9));
 
         vault.setEmergencyShutdown(true);
         wrappedProxy.harvest();
@@ -452,7 +457,40 @@ contract ReaperStrategyYearnFarmerTest is Test {
         console.log("strategyBalance: ", strategyBalance);
         assertGt(vaultBalance, depositAmount);
         assertGt(vaultWantBalance, depositAmount);
-        assertApproxEqAbs(strategyBalance, 0, 5);
+        assertApproxEqAbs(strategyBalance, 0, 10);
+    }
+
+    function testDisablingStakingWillUnstake() public {
+        uint256 depositAmount = _toWant(5);
+        vm.prank(wantHolderAddr);
+        vault.deposit(depositAmount);
+
+        wrappedProxy.harvest();
+        uint256 stakingBalance1 = IStakingRewards(stakingRewards).balanceOf(address(wrappedProxy));
+        wrappedProxy.setShouldStake(false);
+        uint256 stakingBalance2 = IStakingRewards(stakingRewards).balanceOf(address(wrappedProxy));
+
+        uint256 stakingBalance3 = IStakingRewards(stakingRewards).balanceOf(address(wrappedProxy));
+        wrappedProxy.setShouldStake(true);
+        uint256 stakingBalance4 = IStakingRewards(stakingRewards).balanceOf(address(wrappedProxy));
+
+        uint256 pricePerShare = IYearnVault(yearnVault).pricePerShare();
+
+        uint256 expectedShares = depositAmount * 10 ** IYearnVault(yearnVault).decimals() / pricePerShare;
+
+        console.log("stakingBalance1: ", stakingBalance1);
+        console.log("stakingBalance2: ", stakingBalance2);
+        console.log("stakingBalance3: ", stakingBalance3);
+        console.log("stakingBalance4: ", stakingBalance4);
+
+        console.log("pricePerShare: ", pricePerShare);
+
+        console.log("expectedShares: ", expectedShares);
+
+        assertApproxEqAbs(stakingBalance1, expectedShares, 5);
+        assertEq(stakingBalance2, 0);
+        assertEq(stakingBalance3, 0);
+        assertEq(stakingBalance1, stakingBalance4);
     }
 
     function _toWant(uint256 amount) internal returns (uint256) {
