@@ -78,7 +78,7 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      * or when funds are reinvested in to the strategy.
      */
     function _deposit(uint256 toReinvest) internal override {
-        if (toReinvest != 0) {
+        if (toReinvest > 1) {
             IERC20Upgradeable(want).safeIncreaseAllowance(address(yearnVault), toReinvest);
             yearnVault.deposit(toReinvest);
             if (shouldStake) {
