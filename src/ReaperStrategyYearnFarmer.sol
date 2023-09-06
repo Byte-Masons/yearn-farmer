@@ -2,15 +2,14 @@
 
 pragma solidity ^0.8.0;
 
-import "vault-v2/interfaces/ISwapper.sol";
 import {ReaperBaseStrategyv4} from "vault-v2/ReaperBaseStrategyv4.sol";
-import {IVault} from "vault-v2/interfaces/IVault.sol";
 import {IYearnVault} from "./interfaces/IYearnVault.sol";
 import {IStakingRewards} from "./interfaces/IStakingRewards.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
-import {ReaperSwapper} from "vault-v2/ReaperSwapper.sol";
+
+error StakeAttemptWithNoShares();
 
 /**
  * @dev Strategy to wrap and deposit in to a Yearn vault
@@ -23,6 +22,9 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
     IYearnVault public constant YV_OP = IYearnVault(0x7D2382b1f8Af621229d33464340541Db362B4907);
     IStakingRewards public stakingRewards;
 
+    // Controls whether strategy only deposits into Yearn Vault, OR deposits + stakes YV token
+    bool public shouldStake;
+
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
      * @notice see documentation for each variable above its respective declaration.
@@ -34,7 +36,8 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         address[] memory _multisigRoles,
         address[] memory _keepers,
         address _yearnVault,
-        address _stakingRewards
+        address _stakingRewards,
+        bool _shouldStake
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_swapper != address(0), "swapper is 0 address");
@@ -45,8 +48,8 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         yearnVault = IYearnVault(_yearnVault);
         stakingRewards = IStakingRewards(_stakingRewards);
         require(stakingRewards.stakingToken() == _yearnVault, "stakingRewards contract does not match vault");
-        address want = yearnVault.token();
-        __ReaperBaseStrategy_init(_vault, _swapper, want, _strategists, _multisigRoles, _keepers);
+        __ReaperBaseStrategy_init(_vault, _swapper, yearnVault.token(), _strategists, _multisigRoles, _keepers);
+        shouldStake = _shouldStake;
     }
 
     /**
@@ -65,12 +68,7 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         stakingRewards.getReward();
         uint256 yvOpBalance = YV_OP.balanceOf((address(this)));
         if (yvOpBalance != 0) {
-            bool isOpVault = address(yearnVault) == address(YV_OP);
-            if (isOpVault) {
-                _stake();
-            } else {
-                YV_OP.withdraw();
-            }
+            YV_OP.withdraw();
         }
     }
 
@@ -80,53 +78,64 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      * or when funds are reinvested in to the strategy.
      */
     function _deposit(uint256 toReinvest) internal override {
-        if (toReinvest != 0) {
+        if (toReinvest > 1) {
             IERC20Upgradeable(want).safeIncreaseAllowance(address(yearnVault), toReinvest);
             yearnVault.deposit(toReinvest);
-            _stake();
+            if (shouldStake) {
+                _stake();
+            }
         }
     }
 
     /**
-     * @dev Withdraws funds and sends them back to the vault.
+     * @dev withdraws funds from external contracts.
      */
     function _withdraw(uint256 _amount) internal override {
         uint256 withdrawable = MathUpgradeable.min(_amount, balanceOfPool());
-        if (withdrawable != 0) {
-            uint256 pricePerShare = yearnVault.pricePerShare();
-            uint256 sharesToWithdraw = withdrawable * 1 ether / pricePerShare;
-            if (sharesToWithdraw > 1) {
-                uint256 unstakedVaultShares = yearnVault.balanceOf(address(this));
-                if (unstakedVaultShares < sharesToWithdraw) {
-                    uint256 sharesToUnstake = sharesToWithdraw - unstakedVaultShares;
-                    stakingRewards.withdraw(sharesToUnstake);
-                }
-                unstakedVaultShares = yearnVault.balanceOf(address(this));
-                sharesToWithdraw = MathUpgradeable.min(unstakedVaultShares, sharesToWithdraw);
-                yearnVault.withdraw(sharesToWithdraw);
+
+        if (withdrawable == 0) {
+            return;
+        }
+
+        uint256 pricePerShare = yearnVault.pricePerShare();
+        uint256 sharesToWithdraw = withdrawable * 10 ** yearnVault.decimals() / pricePerShare;
+
+        if (sharesToWithdraw <= 1) {
+            return;
+        }
+
+        uint256 unstakedVaultShares = yearnVault.balanceOf(address(this));
+        if (unstakedVaultShares < sharesToWithdraw) {
+            uint256 sharesToUnstake = sharesToWithdraw - unstakedVaultShares;
+            uint256 stakedVaultShares = stakingRewards.balanceOf(address(this));
+            sharesToUnstake = MathUpgradeable.min(sharesToUnstake, stakedVaultShares);
+            if (sharesToUnstake != 0) {
+                stakingRewards.withdraw(sharesToUnstake);
             }
         }
+
+        unstakedVaultShares = yearnVault.balanceOf(address(this));
+        sharesToWithdraw = MathUpgradeable.min(unstakedVaultShares, sharesToWithdraw);
+
+        if (sharesToWithdraw <= 1) {
+            return;
+        }
+
+        yearnVault.withdraw(sharesToWithdraw);
     }
 
     /**
      * @dev Exits fully out of Yearn vaults and staking contract
      */
     function _withdrawAll() internal {
-        stakingRewards.exit();
+        if (stakingRewards.balanceOf(address(this)) != 0) {
+            stakingRewards.exit();
+        }
         yearnVault.withdraw();
     }
 
     /**
-     * @dev Function to calculate the total {want} held by the strat.
-     * It takes in to account the free balance and the amount deposited
-     * to the yearn vault and in the staking contract.
-     */
-    function _estimatedTotalAssets() internal override returns (uint256) {
-        return balanceOfPool() + balanceOfWant();
-    }
-
-    /**
-     * @dev Estimates the amount of want held in the Yearn vault or 
+     * @dev Estimates the amount of want held in the Yearn vault or
      * staking contract.
      */
     function balanceOfPool() public view override returns (uint256) {
@@ -134,7 +143,7 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
         uint256 stakedVaultShares = stakingRewards.balanceOf(address(this));
         uint256 vaultShares = unstakedVaultShares + stakedVaultShares;
         uint256 pricePerShare = yearnVault.pricePerShare();
-        return vaultShares * pricePerShare / 1 ether;
+        return vaultShares * pricePerShare / 10 ** yearnVault.decimals();
     }
 
     /**
@@ -142,7 +151,53 @@ contract ReaperStrategyYearnFarmer is ReaperBaseStrategyv4 {
      */
     function _stake() internal {
         uint256 toStake = yearnVault.balanceOf(address(this));
+        if (toStake == 0) {
+            revert StakeAttemptWithNoShares();
+        }
+
         yearnVault.increaseAllowance(address(stakingRewards), toStake);
         stakingRewards.stake(toStake);
+    }
+
+    /**
+     * @notice Allow strategist or higher to control staking of yearn vault shares
+     */
+    function setShouldStake(bool _shouldStake) external {
+        _atLeastRole(STRATEGIST);
+        shouldStake = _shouldStake;
+
+        if (_shouldStake && yearnVault.balanceOf(address(this)) != 0) {
+            _stake();
+        } else if (!_shouldStake && stakingRewards.balanceOf(address(this)) != 0) {
+            stakingRewards.exit();
+        }
+    }
+
+    /**
+     * Liquidate up to `_amountNeeded` of `want` of this strategy's positions,
+     * irregardless of slippage. Any excess will be re-invested with `_adjustPosition()`.
+     * This function should return the amount of `want` tokens made available by the
+     * liquidation. If there is a difference between them, `loss` indicates whether the
+     * difference is due to a realized loss, or if there is some other sitution at play
+     * (e.g. locked funds) where the amount made available is less than what is needed.
+     *
+     * NOTE: The invariant `liquidatedAmount + loss <= _amountNeeded` should always be maintained
+     */
+    function _liquidatePosition(uint256 _amountNeeded)
+        internal
+        override
+        returns (uint256 liquidatedAmount, uint256 loss)
+    {
+        uint256 wantBal = balanceOfWant();
+        if (wantBal < _amountNeeded) {
+            _withdraw(_amountNeeded - wantBal);
+            liquidatedAmount = MathUpgradeable.min(_amountNeeded, balanceOfWant());
+        } else {
+            liquidatedAmount = _amountNeeded;
+        }
+
+        if (_amountNeeded > liquidatedAmount) {
+            loss = _amountNeeded - liquidatedAmount;
+        }
     }
 }
