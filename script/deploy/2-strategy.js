@@ -1,9 +1,9 @@
 const {ethers, upgrades} = require("hardhat");
 
 async function main() {
-  const vaultAddress = "TODO";
+  const vaultAddress = "0xCcFD57Aa70610E66D8fFC09Ee1489d473F7f8192";
 
-  const Strategy = await ethers.getContractFactory("ReaperStrategyStabilityPool");
+  const Strategy = await ethers.getContractFactory("ReaperStrategyYearnFarmer");
 
   const strategists = [
     "0x1E71AEE6081f62053123140aacC7a06021D77348", // bongo
@@ -37,36 +37,22 @@ async function main() {
     "0xCcb4f4B05739b6C62D9663a5fA7f1E2693048019",
   ];
 
-  const want = "0xc5b001DC33727F8F26880B184090D3E252470D45";
-  const stabilityPoolAddress = "0x8B147A2d4Fc3598079C64b8BF9Ad2f776786CFed";
-  const priceFeedAddress = "0xC6b3Eea38Cbe0123202650fB49c59ec41a406427";
-  const oath = "0x39FdE572a18448F8139b7788099F0a0740f51205";
-  const usdc = "0x7F5c764cBc14f9669B88837ca1490cCa17c31607";
-  const exchangeSettings = {
-    balVault: "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
-    uniV3Router: "0xE592427A0AEce92De3Edee1F18E0157C05861564",
-    uniV3Quoter: "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6",
-  };
-  const aaveContracts = {
-    addressProvider: "0xdDE5dC81e40799750B92079723Da2acAF9e1C6D6",
-    dataProvider: "0x9546F673eF71Ff666ae66d01Fd6E7C6Dae5a9995",
-    rewarder: "0x6A0406B8103Ec68EE9A713A073C7bD587c5e04aD",
-  };
-
+  const swapper = "0x1FFa0AF1Fa5bdfca491a21BD4Eab55304c623ab8";
+  const yearnVault = "0x5B977577Eb8a480f63e11FC615D6753adB8652Ae";
+  const stakingRewards = "0xE35Fec3895Dcecc7d2a91e8ae4fF3c0d43ebfFE0";
+  const shouldStake = true;
+  
   const strategy = await upgrades.deployProxy(
     Strategy,
     [
       vaultAddress,
+      swapper,
       strategists,
       multisigRoles,
       keepers,
-      want,
-      stabilityPoolAddress,
-      priceFeedAddress,
-      oath,
-      usdc,
-      exchangeSettings,
-      aaveContracts,
+      yearnVault,
+      stakingRewards,
+      shouldStake,
     ],
     {kind: "uups", timeout: 0},
   );
