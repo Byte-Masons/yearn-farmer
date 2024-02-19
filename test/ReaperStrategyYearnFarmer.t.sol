@@ -28,12 +28,12 @@ contract ReaperStrategyYearnFarmerTest is Test {
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
+
     address public wethYearnVault = 0x5B977577Eb8a480f63e11FC615D6753adB8652Ae;
     address public usdcYearnVault = 0xaD17A225074191d5c8a37B50FdA1AE278a2EE6A2;
-    address public yearnVault = usdcYearnVault;
+
     address public wethStakingRewards = 0xE35Fec3895Dcecc7d2a91e8ae4fF3c0d43ebfFE0;
     address public usdcStakingRewards = 0xB2c04C55979B6CA7EB10e666933DE5ED84E6876b;
-    address public stakingRewards = usdcStakingRewards;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
     address public adminAddress = 0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B;
@@ -43,14 +43,11 @@ contract ReaperStrategyYearnFarmerTest is Test {
     address public wbtcAddress = 0x68f180fcCe6836688e9084f035309E29Bf0A2095;
     address public opAddress = 0x4200000000000000000000000000000000000042;
     address public usdcAddress = 0x7F5c764cBc14f9669B88837ca1490cCa17c31607;
-    address public wantAddress = usdcAddress;
 
     address public strategistAddr = 0x1A20D7A31e5B3Bc5f02c8A146EF6f394502a10c4;
     address public wantHolderAddr = strategistAddr;
 
-    uint256 BPS_UNIT = 10_000;
-
-    address[] keepers = [
+    address[] public keepers = [
         0xe0268Aa6d55FfE1AA7A77587e56784e5b29004A2,
         0x34Df14D42988e4Dc622e37dc318e70429336B6c5,
         0x73C882796Ea481fe0A2B8DE499d95e60ff971663,
@@ -72,19 +69,33 @@ contract ReaperStrategyYearnFarmerTest is Test {
     address[] public strategists = [strategistAddr];
     address[] public multisigRoles = [superAdminAddress, adminAddress, guardianAddress];
 
-    // Initialized during set up in initial tests
-    ReaperVaultV2 public vault;
+    // Initialized during set up
     string public vaultName = "Yearn farmer Vault";
     string public vaultSymbol = "rf-yv-WETH";
     uint256 public vaultTvlCap = type(uint256).max;
 
-    ReaperStrategyYearnFarmer public implementation;
-    ERC1967Proxy public proxy;
-    ReaperStrategyYearnFarmer public wrappedProxy;
-
     ISwapper public swapper;
 
-    ERC20 public want = ERC20(wantAddress);
+    struct BaseConfig {
+        address wantAddress;
+        address yearnVault;
+        address stakingRewards;
+        bool shouldStake;
+        uint256 startingBalance;
+    }
+
+    struct VaultAndStratConfig {
+        BaseConfig base;
+        ERC20 want;
+        ReaperVaultV2 vault;
+        ReaperStrategyYearnFarmer strategy;
+    }
+
+    VaultAndStratConfig[] public configs;
+    BaseConfig[] public baseConfigs;
+
+    uint256 public feeBPS = 1000;
+    uint256 public allocation = 10_000;
 
     function setUp() public {
         // Forking
@@ -92,46 +103,14 @@ contract ReaperStrategyYearnFarmerTest is Test {
         optimismFork = vm.createSelectFork(rpc, 107994026);
         assertEq(vm.activeFork(), optimismFork);
 
-        // // Deploying stuff
+        //Setting up swapper
         ReaperSwapper swapperImpl = new ReaperSwapper();
         ERC1967Proxy swapperProxy = new ERC1967Proxy(address(swapperImpl), "");
         ReaperSwapper wrappedSwapperProxy = ReaperSwapper(address(swapperProxy));
         wrappedSwapperProxy.initialize(strategists, guardianAddress, superAdminAddress);
         swapper = ISwapper(address(swapperProxy));
 
-        vault =
-        new ReaperVaultV2(wantAddress, vaultName, vaultSymbol, vaultTvlCap, treasuryAddress, strategists, multisigRoles);
-        implementation = new ReaperStrategyYearnFarmer();
-        proxy = new ERC1967Proxy(address(implementation), "");
-        wrappedProxy = ReaperStrategyYearnFarmer(address(proxy));
-
-        // address _vault,
-        // address _swapper,
-        // address[] memory _strategists,
-        // address[] memory _multisigRoles,
-        // address[] memory _keepers,
-        // address _yearnVault
-
-        bool shouldStake = true;
-        wrappedProxy.initialize(
-            address(vault),
-            address(swapper),
-            strategists,
-            multisigRoles,
-            keepers,
-            yearnVault,
-            stakingRewards,
-            shouldStake
-        );
-
-        uint256 feeBPS = 1000;
-        uint256 allocation = 10_000;
-        vault.addStrategy(address(wrappedProxy), feeBPS, allocation);
-
-        vm.prank(wantHolderAddr);
-        want.approve(address(vault), type(uint256).max);
-        deal({token: address(want), to: wantHolderAddr, give: _toWant(10_000_000)});
-
+        
         vm.startPrank(superAdminAddress);
         swapper.updateTokenAggregator(wethAddress, 0x13e3Ee699D1909E989722E753853AE30b17e08c5, 172800);
         swapper.updateTokenAggregator(opAddress, 0x0D276FC14719f9292D5C1eA2198673d1f4269246, 172800);
@@ -146,6 +125,74 @@ contract ReaperStrategyYearnFarmerTest is Test {
         UniV3SwapData memory opWethSwapData = UniV3SwapData({path: opWethPath, fees: opWethFees});
         swapper.updateUniV3SwapPath(opAddress, wethAddress, uniV3Router, opWethSwapData);
 
+
+        //Setting up strategies
+        baseConfigs.push(
+            BaseConfig({
+                wantAddress: usdcAddress,
+                yearnVault: usdcYearnVault,
+                stakingRewards: usdcStakingRewards,
+                shouldStake: true,
+                startingBalance: 10_000_000
+            })
+        );
+
+        baseConfigs.push(
+            BaseConfig({
+                wantAddress: wethAddress,
+                yearnVault: wethYearnVault,
+                stakingRewards: wethStakingRewards,
+                shouldStake: true,
+                startingBalance: 100
+            })
+        );
+
+        // ---------------------------------
+
+        for (uint256 index = 0; index < baseConfigs.length; index++) {
+            BaseConfig memory baseConfig = baseConfigs[index];
+
+            ReaperVaultV2 vault = new ReaperVaultV2(
+                baseConfig.wantAddress,
+                vaultName, 
+                vaultSymbol, 
+                vaultTvlCap, 
+                treasuryAddress, 
+                strategists, 
+                multisigRoles
+            );
+
+            ReaperStrategyYearnFarmer implementation = new ReaperStrategyYearnFarmer();
+            ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), "");
+            ReaperStrategyYearnFarmer strategy = ReaperStrategyYearnFarmer(address(proxy));
+
+            strategy.initialize(
+                address(vault),
+                address(swapper),
+                strategists,
+                multisigRoles,
+                keepers,
+                address(baseConfig.yearnVault),
+                address(baseConfig.stakingRewards),
+                baseConfig.shouldStake
+            );
+
+            vault.addStrategy(address(strategy), feeBPS, allocation);
+
+            vm.prank(wantHolderAddr);
+            ERC20 want = ERC20(baseConfig.wantAddress);
+            want.approve(address(vault), type(uint256).max);
+            deal({token: baseConfig.wantAddress, to: wantHolderAddr, give: _toWant(baseConfig.startingBalance, baseConfig.wantAddress)});
+
+            setUpSwapPaths(strategy);
+
+            configs.push(
+                VaultAndStratConfig(baseConfig, want, vault, strategy)
+            );
+        }
+    }
+
+    function setUpSwapPaths(ReaperStrategyYearnFarmer strategy) public {
         ReaperBaseStrategyv4.SwapStep memory step1 = ReaperBaseStrategyv4.SwapStep({
             exType: ReaperBaseStrategyv4.ExchangeType.UniV3,
             start: opAddress,
@@ -156,16 +203,17 @@ contract ReaperStrategyYearnFarmerTest is Test {
 
         ReaperBaseStrategyv4.SwapStep[] memory steps = new ReaperBaseStrategyv4.SwapStep[](1);
         steps[0] = step1;
-        wrappedProxy.setHarvestSwapSteps(steps);
+        strategy.setHarvestSwapSteps(steps);
     }
 
     ///------ DEPLOYMENT ------\\\\
 
     function testVaultDeployedWith0Balance() public {
-        uint256 totalBalance = vault.balance();
-        uint256 pricePerFullShare = vault.getPricePerFullShare();
+        VaultAndStratConfig storage config = configs[0];
+        uint256 totalBalance = config.vault.balance();
+        uint256 pricePerFullShare = config.vault.getPricePerFullShare();
         assertEq(totalBalance, 0);
-        assertEq(pricePerFullShare, 10 ** IYearnVault(yearnVault).decimals());
+        assertEq(pricePerFullShare, 10 ** IYearnVault(config.base.yearnVault).decimals());
     }
 
     ///------ ACCESS CONTROL ------\\\
@@ -173,368 +221,434 @@ contract ReaperStrategyYearnFarmerTest is Test {
     function testUnassignedRoleCannotPassAccessControl() public {
         vm.startPrank(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266); // random address
 
+        VaultAndStratConfig storage config = configs[0];
+
         vm.expectRevert("Unauthorized access");
-        wrappedProxy.setEmergencyExit();
+        config.strategy.setEmergencyExit();
     }
 
     function testStrategistHasRightPrivileges() public {
         vm.startPrank(strategistAddr);
 
+        VaultAndStratConfig storage config = configs[0];
+
         vm.expectRevert("Unauthorized access");
-        wrappedProxy.setEmergencyExit();
+        config.strategy.setEmergencyExit();
     }
 
     function testGuardianHasRightPrivilieges() public {
         vm.startPrank(guardianAddress);
 
-        wrappedProxy.setEmergencyExit();
+        VaultAndStratConfig storage config = configs[0];
+        config.strategy.setEmergencyExit();
     }
 
     function testAdminHasRightPrivileges() public {
         vm.startPrank(adminAddress);
 
-        wrappedProxy.setEmergencyExit();
+        VaultAndStratConfig storage config = configs[0];    
+        config.strategy.setEmergencyExit();
     }
 
     function testSuperAdminOrOwnerHasRightPrivileges() public {
         vm.startPrank(superAdminAddress);
 
-        wrappedProxy.setEmergencyExit();
+        VaultAndStratConfig storage config = configs[0];   
+        config.strategy.setEmergencyExit();
     }
 
     ///------ VAULT AND STRATEGY------\\\
 
     function testCanTakeDeposits(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e8, 1e17 * 5);
-        vm.startPrank(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
-        console.log("want.balanceOf(wantHolderAddr): ", want.balanceOf(wantHolderAddr));
-        console.log(depositAmount);
-        vault.deposit(depositAmount);
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        uint256 newVaultBalance = vault.balance();
-        console.log(newVaultBalance);
-        assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
+            vm.startPrank(wantHolderAddr);
+            uint256 depositAmount = (config.want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
+            console.log("want.balanceOf(wantHolderAddr): ", config.want.balanceOf(wantHolderAddr));
+            console.log(depositAmount);
+            config.vault.deposit(depositAmount);
 
-        wrappedProxy.harvest();
-        _skipBlockAndTime(50);
-        wrappedProxy.harvest();
+            uint256 newVaultBalance = config.vault.balance();
+            console.log(newVaultBalance);
+            assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
 
-        newVaultBalance = vault.balance();
-        console.log(newVaultBalance);
-        assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
+            config.strategy.harvest();
+            _skipBlockAndTime(50);
+            config.strategy.harvest();
+
+            newVaultBalance = config.vault.balance();
+            console.log(newVaultBalance);
+            assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
+        }
     }
 
     function testVaultCanMintUserPoolShare(uint256 depositScaleFactor, uint256 aliceDepositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e8, 1e17 * 5);
         aliceDepositScaleFactor = bound(aliceDepositScaleFactor, 1e8, 1e16 * 5);
-        address alice = makeAddr("alice");
 
-        vm.startPrank(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
-        vault.deposit(depositAmount);
-        uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * aliceDepositScaleFactor) / 1 ether;
-        want.transfer(alice, aliceDepositAmount);
-        vm.stopPrank();
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        vm.startPrank(alice);
-        want.approve(address(vault), aliceDepositAmount);
-        vault.deposit(aliceDepositAmount);
-        vm.stopPrank();
+            address alice = makeAddr("alice");
 
-        uint256 allowedImprecision = 1e15;
+            vm.startPrank(wantHolderAddr);
+            uint256 depositAmount = (config.want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
+            config.vault.deposit(depositAmount);
+            uint256 aliceDepositAmount = (config.want.balanceOf(wantHolderAddr) * aliceDepositScaleFactor) / 1 ether;
+            config.want.transfer(alice, aliceDepositAmount);
+            vm.stopPrank();
 
-        uint256 userVaultBalance = vault.balanceOf(wantHolderAddr);
-        assertApproxEqRel(userVaultBalance, depositAmount, allowedImprecision);
-        uint256 aliceVaultBalance = vault.balanceOf(alice);
-        assertApproxEqRel(aliceVaultBalance, aliceDepositAmount, allowedImprecision);
+            vm.startPrank(alice);
+            config.want.approve(address(config.vault), aliceDepositAmount);
+            config.vault.deposit(aliceDepositAmount);
+            vm.stopPrank();
 
-        vm.prank(alice);
-        vault.withdrawAll();
-        uint256 aliceWantBalance = want.balanceOf(alice);
-        assertApproxEqRel(aliceWantBalance, aliceDepositAmount, allowedImprecision);
-        aliceVaultBalance = vault.balanceOf(alice);
-        assertEq(aliceVaultBalance, 0);
+            uint256 allowedImprecision = 1e15;
+
+            uint256 userVaultBalance = config.vault.balanceOf(wantHolderAddr);
+            assertApproxEqRel(userVaultBalance, depositAmount, allowedImprecision);
+            uint256 aliceVaultBalance = config.vault.balanceOf(alice);
+            assertApproxEqRel(aliceVaultBalance, aliceDepositAmount, allowedImprecision);
+
+            vm.prank(alice);
+            config.vault.withdrawAll();
+            uint256 aliceWantBalance = config.want.balanceOf(alice);
+            assertApproxEqRel(aliceWantBalance, aliceDepositAmount, allowedImprecision);
+            aliceVaultBalance = config.vault.balanceOf(alice);
+            assertEq(aliceVaultBalance, 0);
+        }
+
     }
 
     function testVaultAllowsWithdrawals(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e10, 1e17 * 5);
-        uint256 userBalance = want.balanceOf(wantHolderAddr);
-        console.log("userBalance: ", userBalance);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
-        console.log("depositAmount: ", depositAmount);
-        vm.startPrank(wantHolderAddr);
-        vault.deposit(depositAmount);
 
-        wrappedProxy.harvest();
-        _skipBlockAndTime(50);
-        wrappedProxy.harvest();
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        vault.withdrawAll();
-        uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
-        console.log("userBalanceAfterWithdraw: ", userBalanceAfterWithdraw);
+            uint256 userBalance = config.want.balanceOf(wantHolderAddr);
+            console.log("userBalance: ", userBalance);
+            uint256 depositAmount = (config.want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
+            console.log("depositAmount: ", depositAmount);
+            vm.startPrank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
 
-        uint256 allowedImprecision = 1e12;
-        assertApproxEqRel(userBalance, userBalanceAfterWithdraw, allowedImprecision);
+            config.strategy.harvest();
+            _skipBlockAndTime(50);
+            config.strategy.harvest();
+
+            config.vault.withdrawAll();
+            uint256 userBalanceAfterWithdraw = config.want.balanceOf(wantHolderAddr);
+            console.log("userBalanceAfterWithdraw: ", userBalanceAfterWithdraw);
+
+            uint256 allowedImprecision = 1e12;
+            assertApproxEqRel(userBalance, userBalanceAfterWithdraw, allowedImprecision);
+
+        }
     }
 
     function testVaultAllowsSmallWithdrawal(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e10, 1e12);
-        address alice = makeAddr("alice");
 
-        vm.startPrank(wantHolderAddr);
-        uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * 1000) / 10000;
-        want.transfer(alice, aliceDepositAmount);
-        uint256 userBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
-        vault.deposit(depositAmount);
-        vm.stopPrank();
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        vm.startPrank(alice);
-        want.approve(address(vault), type(uint256).max);
-        vault.deposit(aliceDepositAmount);
-        vm.stopPrank();
+            address alice = makeAddr("alice");
 
-        vm.prank(wantHolderAddr);
-        vault.withdrawAll();
-        uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
+            vm.startPrank(wantHolderAddr);
+            uint256 aliceDepositAmount = (config.want.balanceOf(wantHolderAddr) * 1000) / 10000;
+            config.want.transfer(alice, aliceDepositAmount);
+            uint256 userBalance = config.want.balanceOf(wantHolderAddr);
+            uint256 depositAmount = (config.want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
+            config.vault.deposit(depositAmount);
+            vm.stopPrank();
 
-        assertEq(userBalance, userBalanceAfterWithdraw);
+            vm.startPrank(alice);
+            config.want.approve(address(config.vault), type(uint256).max);
+            config.vault.deposit(aliceDepositAmount);
+            vm.stopPrank();
+
+            vm.prank(wantHolderAddr);
+            config.vault.withdrawAll();
+            uint256 userBalanceAfterWithdraw = config.want.balanceOf(wantHolderAddr);
+
+            assertEq(userBalance, userBalanceAfterWithdraw);
+        }
+
     }
 
     function testVaultHandlesSmallDepositAndWithdraw(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e10, 1e12);
-        uint256 userBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
-        vm.startPrank(wantHolderAddr);
-        vault.deposit(depositAmount);
 
-        vault.withdraw(depositAmount);
-        uint256 userBalanceAfterWithdraw = want.balanceOf(wantHolderAddr);
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        assertEq(userBalance, userBalanceAfterWithdraw);
+            uint256 userBalance = config.want.balanceOf(wantHolderAddr);
+            uint256 depositAmount = (config.want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
+            vm.startPrank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
+
+            config.vault.withdraw(depositAmount);
+            uint256 userBalanceAfterWithdraw = config.want.balanceOf(wantHolderAddr);
+
+            assertEq(userBalance, userBalanceAfterWithdraw);
+        }
     }
 
     function testCanHarvest(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e11, 1e17);
-        uint256 timeToSkip = 3600;
-        uint256 wantBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
-        console.log("depositAmount: ", depositAmount);
-        vm.prank(wantHolderAddr);
-        vault.deposit(depositAmount);
-        vm.startPrank(keepers[0]);
-        wrappedProxy.harvest();
 
-        uint256 vaultBalanceBefore = vault.balance();
-        skip(timeToSkip);
-        int256 roi = wrappedProxy.harvest();
-        console.log("roi: ");
-        console.logInt(roi);
-        uint256 vaultBalanceAfter = vault.balance();
-        console.log("vaultBalanceBefore: ", vaultBalanceBefore);
-        console.log("vaultBalanceAfter: ", vaultBalanceAfter);
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        assertEq(vaultBalanceAfter - vaultBalanceBefore, uint256(roi));
+            uint256 timeToSkip = 3600;
+            uint256 wantBalance = config.want.balanceOf(wantHolderAddr);
+            uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
+            console.log("depositAmount: ", depositAmount);
+            vm.prank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
+            vm.startPrank(keepers[0]);
+            config.strategy.harvest();
+
+            uint256 vaultBalanceBefore = config.vault.balance();
+            skip(timeToSkip);
+            int256 roi = config.strategy.harvest();
+            console.log("roi: ");
+            console.logInt(roi);
+            uint256 vaultBalanceAfter = config.vault.balance();
+            console.log("vaultBalanceBefore: ", vaultBalanceBefore);
+            console.log("vaultBalanceAfter: ", vaultBalanceAfter);
+
+            assertEq(vaultBalanceAfter - vaultBalanceBefore, uint256(roi));
+            vm.stopPrank();
+        }
     }
 
     function testCanProvideYield(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e11, 1e17);
-        uint256 timeToSkip = 3600;
-        uint256 wantBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
-        console.log("depositAmount: ", depositAmount);
 
-        vm.prank(wantHolderAddr);
-        vault.deposit(depositAmount);
-        uint256 initialVaultBalance = vault.balance();
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        uint256 numHarvests = 5;
+            uint256 timeToSkip = 3600;
+            uint256 wantBalance = config.want.balanceOf(wantHolderAddr);
+            uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
+            console.log("depositAmount: ", depositAmount);
 
-        for (uint256 i; i < numHarvests; i++) {
-            skip(timeToSkip);
-            wrappedProxy.harvest();
+            vm.prank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
+            uint256 initialVaultBalance = config.vault.balance();
+
+            uint256 numHarvests = 5;
+
+            for (uint256 i; i < numHarvests; i++) {
+                skip(timeToSkip);
+                config.strategy.harvest();
+            }
+
+            uint256 finalVaultBalance = config.vault.balance();
+            console.log("initialVaultBalance: ", initialVaultBalance);
+            console.log("finalVaultBalance: ", finalVaultBalance);
+            assertEq(finalVaultBalance > initialVaultBalance, true);
         }
-
-        uint256 finalVaultBalance = vault.balance();
-        console.log("initialVaultBalance: ", initialVaultBalance);
-        console.log("finalVaultBalance: ", finalVaultBalance);
-        assertEq(finalVaultBalance > initialVaultBalance, true);
     }
 
     function testStrategyGetsMoreFunds(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e11, 1e17);
-        uint256 startingAllocationBPS = 9000;
-        vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
-        uint256 timeToSkip = 3600;
-        uint256 wantBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
-        console.log("depositAmount: ", depositAmount);
 
-        vm.prank(wantHolderAddr);
-        vault.deposit(depositAmount);
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        wrappedProxy.harvest();
-        skip(timeToSkip);
-        uint256 vaultBalance = vault.balance();
-        uint256 vaultWantBalance = want.balanceOf(address(vault));
-        uint256 strategyBalance = wrappedProxy.balanceOf();
-        assertEq(vaultBalance, depositAmount);
-        assertApproxEqAbs(vaultWantBalance, depositAmount  / 10, 5);
-        uint256 allowedImprecision = 1e13;
-        assertApproxEqRel(strategyBalance, depositAmount  / 10 * 9, allowedImprecision);
+            uint256 startingAllocationBPS = 9000;
+            config.vault.updateStrategyAllocBPS(address(config.strategy), startingAllocationBPS);
+            uint256 timeToSkip = 3600;
+            uint256 wantBalance = config.want.balanceOf(wantHolderAddr);
+            uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
+            console.log("depositAmount: ", depositAmount);
 
-        vm.prank(wantHolderAddr);
-        vault.deposit(depositAmount);
+            vm.prank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
 
-        wrappedProxy.harvest();
-        skip(timeToSkip);
+            config.strategy.harvest();
+            skip(timeToSkip);
+            uint256 vaultBalance = config.vault.balance();
+            uint256 vaultWantBalance = config.want.balanceOf(address(config.vault));
+            uint256 strategyBalance = config.strategy.balanceOf();
+            assertEq(vaultBalance, depositAmount);
+            assertApproxEqAbs(vaultWantBalance, depositAmount  / 10, 5);
+            uint256 allowedImprecision = 1e13;
+            assertApproxEqRel(strategyBalance, depositAmount  / 10 * 9, allowedImprecision);
 
-        vaultBalance = vault.balance();
-        vaultWantBalance = want.balanceOf(address(vault));
-        strategyBalance = wrappedProxy.balanceOf();
-        console.log("strategyBalance: ", strategyBalance);
-        console.log("vaultBalance: ", vaultBalance);
-        console.log("depositAmount * 2: ", depositAmount * 2);
-        assertGe(vaultBalance, depositAmount * 2);
-        assertGt(vaultWantBalance, depositAmount / 10);
-        assertGt(strategyBalance, depositAmount / 10 * 9);
+            vm.prank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
+
+            config.strategy.harvest();
+            skip(timeToSkip);
+
+            vaultBalance = config.vault.balance();
+            vaultWantBalance = config.want.balanceOf(address(config.vault));
+            strategyBalance = config.strategy.balanceOf();
+            console.log("strategyBalance: ", strategyBalance);
+            console.log("vaultBalance: ", vaultBalance);
+            console.log("depositAmount * 2: ", depositAmount * 2);
+            assertGe(vaultBalance, depositAmount * 2);
+            assertGt(vaultWantBalance, depositAmount / 10);
+            assertGt(strategyBalance, depositAmount / 10 * 9);
+        }
     }
 
     function testVaultPullsFunds(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e11, 1e17);
-        uint256 startingAllocationBPS = 9000;
-        vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
-        uint256 timeToSkip = 3600;
-        uint256 wantBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
-        console.log("depositAmount: ", depositAmount);
 
-        vm.prank(wantHolderAddr);
-        vault.deposit(depositAmount);
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        wrappedProxy.harvest();
-        skip(timeToSkip);
+            uint256 startingAllocationBPS = 9000;
+            config.vault.updateStrategyAllocBPS(address(config.strategy), startingAllocationBPS);
+            uint256 timeToSkip = 3600;
+            uint256 wantBalance = config.want.balanceOf(wantHolderAddr);
+            uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
+            console.log("depositAmount: ", depositAmount);
 
-        uint256 vaultBalance = vault.balance();
-        uint256 vaultWantBalance = want.balanceOf(address(vault));
-        uint256 strategyBalance = wrappedProxy.balanceOf();
-        assertEq(vaultBalance, depositAmount);
-        assertApproxEqAbs(vaultWantBalance, depositAmount / 10, 5);
-        uint256 allowedImprecision = 1e13;
-        assertApproxEqRel(strategyBalance, depositAmount  / 10 * 9, allowedImprecision);
+            vm.prank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
 
-        uint256 newAllocationBPS = 7000;
-        vault.updateStrategyAllocBPS(address(wrappedProxy), newAllocationBPS);
-        wrappedProxy.harvest();
+            config.strategy.harvest();
+            skip(timeToSkip);
 
-        vaultBalance = vault.balance();
-        vaultWantBalance = want.balanceOf(address(vault));
-        strategyBalance = wrappedProxy.balanceOf();
-        if (vaultBalance <= depositAmount) {
-            assertApproxEqAbs(vaultBalance, depositAmount, 5);
+            uint256 vaultBalance = config.vault.balance();
+            uint256 vaultWantBalance = config.want.balanceOf(address(config.vault));
+            uint256 strategyBalance = config.strategy.balanceOf();
+            assertEq(vaultBalance, depositAmount);
+            assertApproxEqAbs(vaultWantBalance, depositAmount / 10, 5);
+            uint256 allowedImprecision = 1e13;
+            assertApproxEqRel(strategyBalance, depositAmount  / 10 * 9, allowedImprecision);
+
+            uint256 newAllocationBPS = 7000;
+            config.vault.updateStrategyAllocBPS(address(config.strategy), newAllocationBPS);
+            config.strategy.harvest();
+
+            vaultBalance = config.vault.balance();
+            vaultWantBalance = config.want.balanceOf(address(config.vault));
+            strategyBalance = config.strategy.balanceOf();
+            if (vaultBalance <= depositAmount) {
+                assertApproxEqAbs(vaultBalance, depositAmount, 5);
+            }
+            if (vaultWantBalance <=  depositAmount / 10 * 3) {
+                assertApproxEqAbs(vaultWantBalance, depositAmount / 10 * 3, 5);
+            }
+            assertApproxEqRel(strategyBalance, depositAmount / 10 * 7, allowedImprecision);
+
+            vm.prank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
+
+            config.strategy.harvest();
+            skip(timeToSkip);
+
+            vaultBalance = config.vault.balance();
+            vaultWantBalance = config.want.balanceOf(address(config.vault));
+            strategyBalance = config.strategy.balanceOf();
+            if (vaultBalance <= depositAmount * 2) {
+                assertApproxEqAbs(vaultBalance, depositAmount * 2, 5);
+            }
+            if (vaultBalance <= depositAmount / 10 * 6) {
+                assertApproxEqAbs(vaultWantBalance, depositAmount / 10 * 6, 5);
+            }
+            assertGt(strategyBalance, depositAmount / 10 * 14);
         }
-        if (vaultWantBalance <=  depositAmount / 10 * 3) {
-            assertApproxEqAbs(vaultWantBalance, depositAmount / 10 * 3, 5);
-        }
-        assertApproxEqRel(strategyBalance, depositAmount / 10 * 7, allowedImprecision);
-
-        vm.prank(wantHolderAddr);
-        vault.deposit(depositAmount);
-
-        wrappedProxy.harvest();
-        skip(timeToSkip);
-
-        vaultBalance = vault.balance();
-        vaultWantBalance = want.balanceOf(address(vault));
-        strategyBalance = wrappedProxy.balanceOf();
-        if (vaultBalance <= depositAmount * 2) {
-            assertApproxEqAbs(vaultBalance, depositAmount * 2, 5);
-        }
-        if (vaultBalance <= depositAmount / 10 * 6) {
-            assertApproxEqAbs(vaultWantBalance, depositAmount / 10 * 6, 5);
-        }
-        assertGt(strategyBalance, depositAmount / 10 * 14);
     }
 
     function testEmergencyShutdown(uint256 depositScaleFactor) public {
         depositScaleFactor = bound(depositScaleFactor, 1e11, 1e17);
-        uint256 startingAllocationBPS = 9000;
-        vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
-        uint256 timeToSkip = 3600;
-        uint256 wantBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
-        console.log("depositAmount: ", depositAmount);
 
-        vm.prank(wantHolderAddr);
-        vault.deposit(depositAmount);
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        wrappedProxy.harvest();
-        skip(timeToSkip);
+            uint256 startingAllocationBPS = 9000;
+            config.vault.updateStrategyAllocBPS(address(config.strategy), startingAllocationBPS);
+            uint256 timeToSkip = 3600;
+            uint256 wantBalance = config.want.balanceOf(wantHolderAddr);
+            uint256 depositAmount = (wantBalance * depositScaleFactor) / 1 ether;
+            console.log("depositAmount: ", depositAmount);
 
-        uint256 vaultBalance = vault.balance();
-        uint256 vaultWantBalance = want.balanceOf(address(vault));
-        uint256 strategyBalance = wrappedProxy.balanceOf();
-        assertEq(vaultBalance, depositAmount);
-        assertApproxEqAbs(vaultWantBalance, depositAmount / 10, 5);
-        uint256 allowedImprecision = 1e13;
-        assertApproxEqRel(strategyBalance, depositAmount  / 10 * 9, allowedImprecision);
+            vm.prank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
 
-        vault.setEmergencyShutdown(true);
-        wrappedProxy.harvest();
+            config.strategy.harvest();
+            skip(timeToSkip);
 
-        vaultBalance = vault.balance();
-        vaultWantBalance = want.balanceOf(address(vault));
-        strategyBalance = wrappedProxy.balanceOf();
-        console.log("vaultBalance: ", vaultBalance);
-        console.log("depositAmount: ", depositAmount);
-        console.log("vaultWantBalance: ", vaultWantBalance);
-        console.log("strategyBalance: ", strategyBalance);
-        assertGe(vaultBalance, depositAmount);
-        assertGe(vaultWantBalance, depositAmount);
-        uint256 maxRemaining = depositAmount * 1e12 / 1 ether;
-        console.log("maxRemaining: ", maxRemaining);
-        if (maxRemaining <= 5) {
-            maxRemaining = 5;
+            uint256 vaultBalance = config.vault.balance();
+            uint256 vaultWantBalance = config.want.balanceOf(address(config.vault));
+            uint256 strategyBalance = config.strategy.balanceOf();
+            assertEq(vaultBalance, depositAmount);
+            assertApproxEqAbs(vaultWantBalance, depositAmount / 10, 5);
+            uint256 allowedImprecision = 1e13;
+            assertApproxEqRel(strategyBalance, depositAmount  / 10 * 9, allowedImprecision);
+
+            config.vault.setEmergencyShutdown(true);
+            config.strategy.harvest();
+
+            vaultBalance = config.vault.balance();
+            vaultWantBalance = config.want.balanceOf(address(config.vault));
+            strategyBalance = config.strategy.balanceOf();
+            console.log("vaultBalance: ", vaultBalance);
+            console.log("depositAmount: ", depositAmount);
+            console.log("vaultWantBalance: ", vaultWantBalance);
+            console.log("strategyBalance: ", strategyBalance);
+            assertGe(vaultBalance, depositAmount);
+            assertGe(vaultWantBalance, depositAmount);
+            uint256 maxRemaining = depositAmount * 1e12 / 1 ether;
+            console.log("maxRemaining: ", maxRemaining);
+            if (maxRemaining <= 5) {
+                maxRemaining = 5;
+            }
+            assertApproxEqAbs(strategyBalance, 0, maxRemaining);
         }
-        assertApproxEqAbs(strategyBalance, 0, maxRemaining);
+
     }
 
     function testDisablingStakingWillUnstake() public {
-        uint256 depositAmount = _toWant(5);
-        vm.prank(wantHolderAddr);
-        vault.deposit(depositAmount);
+        for (uint256 index = 0; index < configs.length; index++) {
+            VaultAndStratConfig storage config = configs[index];
 
-        wrappedProxy.harvest();
-        uint256 stakingBalance1 = IStakingRewards(stakingRewards).balanceOf(address(wrappedProxy));
-        wrappedProxy.setShouldStake(false);
-        uint256 stakingBalance2 = IStakingRewards(stakingRewards).balanceOf(address(wrappedProxy));
+            uint256 depositAmount = _toWant(5, address(config.want));
+            vm.prank(wantHolderAddr);
+            config.vault.deposit(depositAmount);
 
-        uint256 stakingBalance3 = IStakingRewards(stakingRewards).balanceOf(address(wrappedProxy));
-        wrappedProxy.setShouldStake(true);
-        uint256 stakingBalance4 = IStakingRewards(stakingRewards).balanceOf(address(wrappedProxy));
+            config.strategy.harvest();
+            uint256 stakingBalance1 = IStakingRewards(config.base.stakingRewards).balanceOf(address(config.strategy));
+            config.strategy.setShouldStake(false);
+            uint256 stakingBalance2 = IStakingRewards(config.base.stakingRewards).balanceOf(address(config.strategy));
 
-        uint256 pricePerShare = IYearnVault(yearnVault).pricePerShare();
+            uint256 stakingBalance3 = IStakingRewards(config.base.stakingRewards).balanceOf(address(config.strategy));
+            config.strategy.setShouldStake(true);
+            uint256 stakingBalance4 = IStakingRewards(config.base.stakingRewards).balanceOf(address(config.strategy));
 
-        uint256 expectedShares = depositAmount * 10 ** IYearnVault(yearnVault).decimals() / pricePerShare;
+            uint256 pricePerShare = IYearnVault(config.base.yearnVault).pricePerShare();
 
-        console.log("stakingBalance1: ", stakingBalance1);
-        console.log("stakingBalance2: ", stakingBalance2);
-        console.log("stakingBalance3: ", stakingBalance3);
-        console.log("stakingBalance4: ", stakingBalance4);
+            uint256 expectedShares = depositAmount * 10 ** IYearnVault(config.base.yearnVault).decimals() / pricePerShare;
 
-        console.log("pricePerShare: ", pricePerShare);
+            console.log("stakingBalance1: ", stakingBalance1);
+            console.log("stakingBalance2: ", stakingBalance2);
+            console.log("stakingBalance3: ", stakingBalance3);
+            console.log("stakingBalance4: ", stakingBalance4);
 
-        console.log("expectedShares: ", expectedShares);
+            console.log("pricePerShare: ", pricePerShare);
 
-        assertApproxEqAbs(stakingBalance1, expectedShares, 5);
-        assertEq(stakingBalance2, 0);
-        assertEq(stakingBalance3, 0);
-        assertEq(stakingBalance1, stakingBalance4);
+            console.log("expectedShares: ", expectedShares);
+
+            assertApproxEqAbs(stakingBalance1, expectedShares, 5);
+            assertEq(stakingBalance2, 0);
+            assertEq(stakingBalance3, 0);
+            assertEq(stakingBalance1, stakingBalance4);
+        }
+
     }
 
-    function _toWant(uint256 amount) internal returns (uint256) {
-        return amount * (10 ** want.decimals());
+    function _toWant(uint256 amount, address want) internal returns (uint256) {
+        return amount * (10 ** ERC20(want).decimals());
     }
 
     function _skipBlockAndTime(uint256 _amount) private {
